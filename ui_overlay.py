@@ -1,6 +1,6 @@
 """
 Module: ui_overlay.py
-Mục đích: Giao diện Overlay hiển thị trạng thái của Trợ lý ảo Echo Assistant.
+Mục đích: Giao diện Overlay hiển thị trạng thái của Trợ lý ảo Tèo Assistant.
 Chức năng:
     - Cửa sổ trong suốt (translucent background), không viền (frameless), luôn trên cùng (always on top).
     - Căn chính giữa màn hình trung tâm của người dùng.
@@ -40,7 +40,7 @@ class GlowOrbOverlay(QWidget):
     def __init__(self, size: int = 300, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.orb_size = size
-        self.status_text = "Echo đang lắng nghe..."
+        self.status_text = "Tèo đang lắng nghe..."
         self._pulse_phase = 0.0
 
         # Khởi tạo signals cho giao tiếp an toàn đa luồng
@@ -187,7 +187,7 @@ class GlowOrbOverlay(QWidget):
     # CÁC HÀM CÔNG KHAI (Thread-Safe Public API)
     # Có thể gọi an toàn từ bất kỳ luồng nào (Worker, WakeWord, STT...)
     # -----------------------------------------------------------------
-    def show_overlay(self, status: str = "Echo đang lắng nghe...") -> None:
+    def show_overlay(self, status: str = "Tèo đang lắng nghe...") -> None:
         """Hiển thị overlay kèm chữ trạng thái (an toàn từ mọi luồng)."""
         self.signals.show_requested.emit(status)
 
@@ -206,7 +206,7 @@ if __name__ == "__main__":
     overlay = GlowOrbOverlay()
 
     print("[UI Overlay] Đang mở giao diện Glow Orb phát sáng thử nghiệm...")
-    overlay.show_overlay("Echo đang lắng nghe...")
+    overlay.show_overlay("Tèo đang lắng nghe...")
 
     # Tự động đổi trạng thái sau 3s và ẩn sau 6s để kiểm tra
     QTimer.singleShot(3000, lambda: overlay.set_status("Đang giải mã ý định..."))

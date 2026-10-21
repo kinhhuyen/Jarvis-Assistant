@@ -1,6 +1,5 @@
-# Jarvis Assistant Requirements
+# Tèo Assistant Requirements
 PyQt6>=6.6.0
-openwakeword>=0.6.0
 vosk>=0.3.45
 sounddevice>=0.5.0
 soundfile>=0.12.0
@@ -10,7 +9,6 @@ requests>=2.31.0
 numpy>=1.26.0
 scipy>=1.12.0
 scikit-learn>=1.4.0
-onnxruntime>=1.17.0
 rapidfuzz>=3.6.0
 pycaw>=20240210
 comtypes>=1.2.0

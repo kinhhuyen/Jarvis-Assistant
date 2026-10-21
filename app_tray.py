@@ -1,14 +1,14 @@
 """
 Module: app_tray.py
-Mục đích: Chương trình điều phối chính của Trợ lý ảo Echo Assistant.
+Mục đích: Chương trình điều phối chính của Trợ lý ảo Tèo Assistant.
 Chức năng:
     - Quản lý giao diện PyQt6 trên luồng chính (Main Thread):
         + Cửa sổ Glow Orb Overlay trong suốt, mờ ảo chính giữa màn hình.
         + Khay hệ thống (System Tray Icon) chạy ngầm trên thanh tác vụ Windows Taskbar.
-    - Chạy bộ nhận diện Wake Word (OpenWakeWord) và pipeline xử lý lệnh trên các luồng phụ (QThread / Worker).
+    - Chạy bộ nhận diện Wake Word "Tèo" (Vosk tiếng Việt) và pipeline xử lý lệnh trên các luồng phụ (QThread / Worker).
     - Luồng hoạt động hoàn chỉnh (Hands-Free Voice Flow):
-        1. Người dùng nói từ khóa ("Alexa" hoặc "Hey Jarvis").
-        2. WakeWordEngine phát hiện -> Tự động nhường micro cho STT.
+        1. Người dùng gọi từ khóa ("Tèo ơi", "Ê Tèo", "Tèo", "Anh Tèo"...).
+        2. WakeWordEngine (Vosk) phát hiện -> Tự động nhường micro cho STT.
         3. Phát tín hiệu mở Overlay phát sáng (Glow Orb).
         4. Phát tiếng "Bíp" xác nhận bằng winsound.
         5. Thu âm câu lệnh qua STT Engine (Google STT / Vosk Offline).
@@ -17,7 +17,9 @@ Chức năng:
         8. Hoàn tất -> Ẩn Overlay -> Mở lại luồng lắng nghe Wake Word.
 """
 
+import ctypes
 import os
+import socket
 import sys
 import threading
 import time
@@ -33,6 +35,76 @@ if sys.platform.startswith("win"):
             sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass
+
+# =============================================================================
+# SINGLE INSTANCE GUARD (Kiểm tra tức thì TRƯỚC KHI nạp bất kỳ thư viện nặng nào)
+# =============================================================================
+_SINGLE_INSTANCE_MUTEX = None
+_SINGLE_INSTANCE_SOCKET = None
+_IS_ALREADY_ACQUIRED = False
+SINGLE_INSTANCE_PORT = 65432
+
+
+def ensure_single_instance() -> bool:
+    """
+    Kiểm tra và đảm bảo chỉ có duy nhất 1 tiến trình Tèo Assistant chạy trên hệ thống.
+    Sử dụng cơ chế Dual-Lock (Windows Named Mutex qua ctypes + Socket bind localhost:65432):
+        1. Named Mutex: Cơ chế Windows API giải phóng tức thì khi tiến trình bị đóng (kể cả crash).
+        2. Localhost Socket: Lớp bảo vệ bổ trợ ngăn chặn xung đột trên mọi môi trường.
+
+    Trả về:
+        True: Nếu đây là tiến trình duy nhất (được phép khởi động).
+        False: Nếu đã có một tiến trình khác đang chạy ngầm.
+    """
+    global _SINGLE_INSTANCE_MUTEX, _SINGLE_INSTANCE_SOCKET, _IS_ALREADY_ACQUIRED
+
+    if _IS_ALREADY_ACQUIRED:
+        return True
+
+    # 1. Kiểm tra qua Windows Named Mutex (ctypes)
+    if sys.platform.startswith("win"):
+        try:
+            ERROR_ALREADY_EXISTS = 183
+            kernel32 = ctypes.windll.kernel32
+            mutex_name = "Local\\TeoAssistant_SingleInstance_Mutex"
+            mutex = kernel32.CreateMutexW(None, False, mutex_name)
+            last_error = kernel32.GetLastError()
+            if last_error == ERROR_ALREADY_EXISTS:
+                if mutex:
+                    kernel32.CloseHandle(mutex)
+                return False
+            _SINGLE_INSTANCE_MUTEX = mutex
+        except Exception:
+            pass
+
+    # 2. Kiểm tra qua Socket Binding (localhost:65432)
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("127.0.0.1", SINGLE_INSTANCE_PORT))
+        sock.listen(1)
+        _SINGLE_INSTANCE_SOCKET = sock
+    except (socket.error, OSError):
+        # Nếu socket bind thất bại -> đã có tiến trình khác giữ port 65432
+        if _SINGLE_INSTANCE_MUTEX and sys.platform.startswith("win"):
+            try:
+                ctypes.windll.kernel32.CloseHandle(_SINGLE_INSTANCE_MUTEX)
+            except Exception:
+                pass
+            _SINGLE_INSTANCE_MUTEX = None
+        return False
+
+    _IS_ALREADY_ACQUIRED = True
+    return True
+
+
+# Kiểm tra nhanh tại entry point TRƯỚC KHI import PyQt6 hay Vosk
+if __name__ == "__main__":
+    if not ensure_single_instance():
+        try:
+            print("Tèo Assistant đang chạy ngầm!", flush=True)
+        except Exception:
+            pass
+        sys.exit(0)
 
 from PyQt6.QtCore import QObject, QThread, QTimer, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import (
@@ -55,7 +127,7 @@ from wake_word_engine import WakeWordEngine
 
 
 def create_tray_icon() -> QIcon:
-    """Tạo biểu tượng System Tray phong cách Echo Orb rực rỡ dạng vector bằng QPainter."""
+    """Tạo biểu tượng System Tray phong cách Tèo Orb rực rỡ dạng vector bằng QPainter."""
     pixmap = QPixmap(64, 64)
     pixmap.fill(Qt.GlobalColor.transparent)
 
@@ -77,12 +149,12 @@ def create_tray_icon() -> QIcon:
     painter.setPen(QColor(255, 255, 255, 220))
     painter.drawEllipse(10, 10, 44, 44)
 
-    # Chữ 'E' (Echo) ở trung tâm
-    font = QFont("Segoe UI", 20)
+    # Chữ 'T' (Tèo) ở trung tâm
+    font = QFont("Segoe UI", 22)
     font.setBold(True)
     painter.setFont(font)
     painter.setPen(QColor(255, 255, 255))
-    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "E")
+    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "T")
 
     painter.end()
     return QIcon(pixmap)
@@ -113,7 +185,7 @@ class CommandProcessingWorker(QThread):
         self.brain = brain
         self.executor = executor
         self.wake_engine = wake_engine
-        self.active_model_name = "wake_word"
+        self.active_model_name = "teo"
         self._is_busy = False
 
     def trigger_command(self, model_name: str) -> None:
@@ -121,6 +193,7 @@ class CommandProcessingWorker(QThread):
         if self._is_busy or self.isRunning():
             print("[Worker] Đang bận xử lý câu lệnh trước, bỏ qua lượt kích hoạt trùng lặp.")
             return
+
         self.active_model_name = model_name
         self.start()
 
@@ -129,7 +202,7 @@ class CommandProcessingWorker(QThread):
         self._is_busy = True
         try:
             # 1. Phát tín hiệu hiện Overlay
-            self.show_overlay_sig.emit("Echo đang lắng nghe...")
+            self.show_overlay_sig.emit("Tèo đang lắng nghe...")
 
             # 2. Phát âm thanh 'Bíp' xác nhận bằng winsound (1200Hz, 180ms)
             try:
@@ -138,7 +211,7 @@ class CommandProcessingWorker(QThread):
                 pass
 
             # 3. Thu âm câu lệnh rảnh tay (tự động phát hiện im lặng ngắt sớm)
-            print(f"\n[Echo Assistant] 🎙️ Đang lắng nghe câu lệnh người dùng...")
+            print("\n[Tèo Assistant] 🎙️ Đang lắng nghe câu lệnh người dùng...")
             raw_audio = self.stt.record_wake_command(max_duration=4.5, silence_limit=0.9)
 
             if not raw_audio:
@@ -155,14 +228,14 @@ class CommandProcessingWorker(QThread):
                 time.sleep(0.7)
                 return
 
-            print(f"[Echo Assistant 👤] Lệnh nhận diện: \"{user_text}\"")
+            print(f"[Tèo Assistant 👤] Lệnh nhận diện: \"{user_text}\"")
             self.update_status_sig.emit(f"\"{user_text}\"")
 
             # 5. Phân tích ngữ nghĩa qua Bộ não (Brain)
             t0 = time.time()
             actions = self.brain.process(user_text)
             elapsed = round(time.time() - t0, 2)
-            print(f"[Echo Assistant 🧠] Ý định giải mã xong ({elapsed}s): {actions}")
+            print(f"[Tèo Assistant 🧠] Ý định giải mã xong ({elapsed}s): {actions}")
 
             # 6. Thực thi hành động qua ActionExecutor
             self.update_status_sig.emit("Đang thực thi lệnh...")
@@ -171,7 +244,7 @@ class CommandProcessingWorker(QThread):
             time.sleep(0.4)
 
         except Exception as exc:
-            print(f"[Echo Assistant ✗ Lỗi Worker]: {exc}")
+            print(f"[Tèo Assistant ✗ Lỗi Worker]: {exc}")
             self.update_status_sig.emit("Đã xảy ra sự cố.")
             time.sleep(0.7)
         finally:
@@ -183,46 +256,53 @@ class CommandProcessingWorker(QThread):
             self.wake_engine.resume()
             self._is_busy = False
             self.finished_sig.emit()
-            print("[Echo Assistant] ✓ Đã hoàn thành lệnh. Sẵn sàng lắng nghe từ khóa tiếp theo.\n")
+            print("[Tèo Assistant] ✓ Đã hoàn thành lệnh. Sẵn sàng lắng nghe từ khóa tiếp theo.\n")
 
 
-class EchoAssistantApp:
+class TeoAssistantApp:
     """
-    Lớp điều phối toàn diện ứng dụng Echo Assistant:
+    Lớp điều phối toàn diện ứng dụng Tèo Assistant:
     - Quản lý ứng dụng Qt.
     - Quản lý System Tray.
-    - Kết nối tín hiệu giữa WakeWordEngine, Worker và Overlay.
+    - Kết nối tín hiệu giữa WakeWordEngine (Vosk), Worker và Overlay.
     """
 
     def __init__(self) -> None:
+        # 0. Kiểm tra Single Instance (Chỉ cho phép 1 tiến trình duy nhất)
+        if not ensure_single_instance():
+            try:
+                print("Tèo Assistant đang chạy ngầm!", flush=True)
+            except Exception:
+                pass
+            sys.exit(0)
+
         # 1. Khởi tạo QApplication
         self.app = QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(False)  # Giữ app chạy nền khi đóng overlay
 
         print("\n" + "=" * 68)
-        print("         KHỞI ĐỘNG ECHO ASSISTANT (WAKE WORD & TRAY OVERLAY)")
+        print("         KHỞI ĐỘNG TÈO ASSISTANT (WAKE WORD VOSK & TRAY OVERLAY)")
         print("=" * 68)
 
         # 2. Khởi tạo Giao diện Overlay
-        print("[Echo] [1/4] Đang khởi tạo giao diện Glow Orb Overlay...")
+        print("[Tèo] [1/4] Đang khởi tạo giao diện Glow Orb Overlay...")
         self.overlay = GlowOrbOverlay(size=300)
 
         # 3. Khởi tạo các module bộ não và hành động
-        print("[Echo] [2/4] Đang khởi tạo Bộ nhận diện STT, Brain và ActionExecutor...")
+        print("[Tèo] [2/4] Đang khởi tạo Bộ nhận diện STT, Brain và ActionExecutor...")
         self.stt = SpeechToText()
         self.brain = Brain()
         self.executor = ActionExecutor()
 
-        # 4. Khởi tạo Wake Word Engine (Chạy trên luồng riêng)
-        print("[Echo] [3/4] Đang khởi tạo Wake Word Engine ('alexa', 'hey_jarvis')...")
+        # 4. Khởi tạo Wake Word Engine bằng Vosk tiếng Việt
+        print("[Tèo] [3/4] Đang khởi tạo Wake Word Engine Vosk ('Hey Tèo')...")
         self.wake_engine = WakeWordEngine(
-            models=["alexa", "hey_jarvis"],
-            threshold=0.5,
+            wake_keyword="hey tèo",
             on_detected=self._on_wake_word_triggered,
         )
 
         # 5. Khởi tạo Worker xử lý giọng nói (QThread)
-        print("[Echo] [4/4] Đang kết nối luồng xử lý giọng nói CommandProcessingWorker...")
+        print("[Tèo] [4/4] Đang kết nối luồng xử lý giọng nói CommandProcessingWorker...")
         self.worker = CommandProcessingWorker(
             stt=self.stt,
             brain=self.brain,
@@ -241,18 +321,18 @@ class EchoAssistantApp:
     def _setup_system_tray(self) -> None:
         """Thiết lập biểu tượng và menu ngữ cảnh cho Khay hệ thống Windows."""
         self.tray_icon = QSystemTrayIcon(create_tray_icon(), self.app)
-        self.tray_icon.setToolTip("Echo Assistant - Sẵn sàng (Nói 'Alexa' hoặc 'Hey Jarvis')")
+        self.tray_icon.setToolTip("Tèo Assistant - Sẵn sàng (Nói 'Tèo ơi' hoặc 'Ê Tèo')")
 
         menu = QMenu()
 
         # Tiêu đề thông tin
-        title_action = QAction("Echo Assistant (Đang hoạt động)", menu)
+        title_action = QAction("Tèo Assistant (Đang hoạt động)", menu)
         title_action.setEnabled(False)
         menu.addAction(title_action)
         menu.addSeparator()
 
         # Bật/Tắt Lắng nghe Wake Word
-        self.toggle_wake_action = QAction("Lắng nghe Wake Word", menu)
+        self.toggle_wake_action = QAction("Lắng nghe Wake Word (Tèo)", menu)
         self.toggle_wake_action.setCheckable(True)
         self.toggle_wake_action.setChecked(True)
         self.toggle_wake_action.triggered.connect(self._toggle_wake_word)
@@ -264,7 +344,7 @@ class EchoAssistantApp:
         menu.addAction(test_overlay_action)
 
         # Thông tin mô hình
-        model_info_action = QAction("Từ khóa: 'Alexa' hoặc 'Hey Jarvis'", menu)
+        model_info_action = QAction("Từ khóa: 'Tèo' (Vosk Offline)", menu)
         model_info_action.setEnabled(False)
         menu.addAction(model_info_action)
 
@@ -280,16 +360,15 @@ class EchoAssistantApp:
 
         # Thông báo quả bóng (Notification Balloon) chào mừng
         self.tray_icon.showMessage(
-            "Echo Assistant",
-            "Đã khởi động ngầm trên khay hệ thống.\nHãy nói 'Alexa' hoặc 'Hey Jarvis' để ra lệnh!",
+            "Tèo Assistant",
+            "Đã khởi động ngầm trên khay hệ thống.\nHãy gọi 'Tèo ơi' hoặc 'Ê Tèo' để ra lệnh!",
             QSystemTrayIcon.MessageIcon.Information,
             3500,
         )
 
     def _on_wake_word_triggered(self, model_name: str, score: float) -> None:
-        """Hàm callback được gọi từ luồng WakeWordListener khi phát hiện từ khóa."""
-        print(f"\n[App] 🔔 Nhận tín hiệu Wake Word: '{model_name}' (Điểm: {score:.2f}) -> Kích hoạt Worker!")
-        # Chuyển quyền xử lý sang Worker QThread
+        """Hàm callback được gọi từ luồng Vosk Wake Word khi phát hiện từ khóa."""
+        print(f"\n[App] 🔔 Nhận tín hiệu Wake Word: '{model_name}' -> Kích hoạt Worker!")
         self.worker.trigger_command(model_name)
 
     def _toggle_wake_word(self, checked: bool) -> None:
@@ -303,7 +382,7 @@ class EchoAssistantApp:
 
     def _test_show_overlay(self) -> None:
         """Hiển thị overlay thử nghiệm trong 3 giây."""
-        self.overlay.show_overlay("Echo Assistant đang thử nghiệm...")
+        self.overlay.show_overlay("Tèo đang thử nghiệm...")
         QTimer.singleShot(3000, self.overlay.hide_overlay)
 
     def start(self) -> None:
@@ -312,8 +391,8 @@ class EchoAssistantApp:
         self.wake_engine.start()
 
         print("\n" + "=" * 68)
-        print("✓ ECHO ASSISTANT ĐÃ HOẠT ĐỘNG HOÀN TOÀN TRÊN KHAY HỆ THỐNG!")
-        print("• Hãy nói vào micro: 'Alexa' hoặc 'Hey Jarvis'")
+        print("✓ TÈO ASSISTANT ĐÃ HOẠT ĐỘNG HOÀN TOÀN TRÊN KHAY HỆ THỐNG!")
+        print("• Hãy nói vào micro: 'Hey Tèo', 'Tèo ơi', 'Ê Tèo' hoặc 'Chào Tèo'")
         print("• Nhấn chuột phải vào icon ở góc màn hình (System Tray) để tùy chọn.")
         print("• Nhấn Ctrl + C trên terminal để đóng chương trình.")
         print("=" * 68 + "\n")
@@ -326,7 +405,7 @@ class EchoAssistantApp:
 
     def quit(self) -> None:
         """Đóng an toàn toàn bộ ứng dụng và các tiến trình nền."""
-        print("\n[App] Đang đóng Echo Assistant...")
+        print("\n[App] Đang đóng Tèo Assistant...")
         try:
             self.wake_engine.stop()
         except Exception:
@@ -350,9 +429,38 @@ class EchoAssistantApp:
             pass
 
         print("[App] ✓ Đã dừng toàn bộ luồng. Tạm biệt bạn!")
+
+        # Giải phóng Mutex và Socket Single Instance
+        global _SINGLE_INSTANCE_MUTEX, _SINGLE_INSTANCE_SOCKET, _IS_ALREADY_ACQUIRED
+        if _SINGLE_INSTANCE_SOCKET:
+            try:
+                _SINGLE_INSTANCE_SOCKET.close()
+            except Exception:
+                pass
+            _SINGLE_INSTANCE_SOCKET = None
+
+        if _SINGLE_INSTANCE_MUTEX and sys.platform.startswith("win"):
+            try:
+                ctypes.windll.kernel32.CloseHandle(_SINGLE_INSTANCE_MUTEX)
+            except Exception:
+                pass
+            _SINGLE_INSTANCE_MUTEX = None
+
+        _IS_ALREADY_ACQUIRED = False
+
         self.app.quit()
 
 
+# Bí danh tương thích ngược
+EchoAssistantApp = TeoAssistantApp
+
+
 if __name__ == "__main__":
-    app_runner = EchoAssistantApp()
+    if not ensure_single_instance():
+        try:
+            print("Tèo Assistant đang chạy ngầm!", flush=True)
+        except Exception:
+            pass
+        sys.exit(0)
+    app_runner = TeoAssistantApp()
     app_runner.start()

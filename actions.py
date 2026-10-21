@@ -50,8 +50,20 @@ except ImportError:
 
 # Thư viện tự động tìm kiếm và mở ứng dụng đã cài đặt trên Windows (hỗ trợ cả app UWP Store)
 try:
+    # Nếu file Data/data.json bị lỗi định dạng trước đó, dọn dẹp để AppOpener không crash
+    data_json_path = os.path.join(os.getcwd(), "Data", "data.json")
+    if os.path.exists(data_json_path):
+        try:
+            with open(data_json_path, "r", encoding="utf-8") as _f:
+                json.load(_f)
+        except Exception:
+            try:
+                os.remove(data_json_path)
+            except Exception:
+                pass
+
     import AppOpener
-except ImportError:
+except Exception:
     AppOpener = None
 
 

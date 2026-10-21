@@ -98,41 +98,62 @@ class MemoryManager:
     def _load_memory(self) -> None:
         """
         Đọc dữ liệu từ file memory.json vào bộ nhớ RAM.
-        Nếu file chưa tồn tại -> tự tạo file rỗng.
-        Nếu file JSON bị hỏng -> sao lưu file lỗi và khởi tạo lại an toàn.
+        Nếu file chưa tồn tại -> tự tạo file rỗng {}.
+        Nếu file JSON bị lỗi định dạng (do copy paste đè file) -> tự động ghi đè lại file rỗng {}
+        thay vì văng lỗi (Crash) app.
         """
         with self._lock:
             if not self.filepath.exists():
                 print(f"[MemoryManager] File '{self.filepath.name}' chưa tồn tại. Đang tạo mới...")
                 self.cache = {}
-                self._save_memory_unlocked()
+                self._overwrite_with_empty()
                 return
 
             try:
                 with open(self.filepath, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if isinstance(data, dict):
-                        self.cache = data
-                        print(f"[MemoryManager] Đã tải thành công {len(self.cache)} câu lệnh từ '{self.filepath.name}'.")
-                    else:
-                        raise ValueError("Dữ liệu trong memory.json không phải là dict.")
+                    content = f.read().strip()
 
-            except (json.JSONDecodeError, ValueError) as err:
-                timestamp = int(time.time())
-                backup_path = self.filepath.with_suffix(f".corrupt_{timestamp}.bak")
+                # Nếu file rỗng (0 bytes) -> nạp dict rỗng và chuẩn hóa thành {}
+                if not content:
+                    self.cache = {}
+                    self._overwrite_with_empty()
+                    return
+
+                data = json.loads(content)
+                if isinstance(data, dict):
+                    self.cache = data
+                    print(f"[MemoryManager] Đã tải thành công {len(self.cache)} câu lệnh từ '{self.filepath.name}'.")
+                else:
+                    raise ValueError("Dữ liệu trong memory.json không phải là dict.")
+
+            except (json.JSONDecodeError, ValueError, UnicodeDecodeError, Exception) as err:
                 print(f"[MemoryManager: CẢNH BÁO] File '{self.filepath.name}' bị lỗi định dạng ({err})!")
-                print(f"[MemoryManager] Đang sao lưu file lỗi sang '{backup_path.name}' và khởi tạo lại...")
+                print(f"[MemoryManager] Tự động ghi đè lại thành file rỗng '{{}}' để chống crash app.")
+
+                # Sao lưu file lỗi (nếu có thể) để người dùng không mất dữ liệu cũ
                 try:
+                    timestamp = int(time.time())
+                    backup_path = self.filepath.with_suffix(f".corrupt_{timestamp}.bak")
                     shutil.copy2(self.filepath, backup_path)
-                except Exception as copy_err:
-                    print(f"[MemoryManager: Lỗi sao lưu]: {copy_err}")
+                except Exception:
+                    pass
 
                 self.cache = {}
+                self._overwrite_with_empty()
+
+    def _overwrite_with_empty(self) -> None:
+        """Ghi đè file memory.json thành file rỗng {} một cách an toàn."""
+        try:
+            with open(self.filepath, "w", encoding="utf-8") as f:
+                f.write("{\n}")
+                f.flush()
+                os.fsync(f.fileno())
+        except Exception as exc:
+            print(f"[MemoryManager: Cảnh báo ghi đè rỗng]: {exc}")
+            try:
                 self._save_memory_unlocked()
-
-            except Exception as exc:
-                print(f"[MemoryManager: Lỗi đọc file]: {exc}. Tạm thời sử dụng bộ nhớ trống.")
-                self.cache = {}
+            except Exception:
+                pass
 
     def _save_memory_unlocked(self) -> None:
         """

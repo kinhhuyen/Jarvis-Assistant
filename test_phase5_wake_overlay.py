@@ -1,8 +1,8 @@
 """
 Test Suite: test_phase5_wake_overlay.py
-Mục đích: Kiểm tra toàn diện Phase 5.1 của Echo Assistant:
+Mục đích: Kiểm tra toàn diện Phase 5.1 của Tèo Assistant:
 1. Giao diện Glow Orb Overlay (PyQt6 trong suốt, animation, căn giữa màn hình).
-2. Module Wake Word Engine (OpenWakeWord với ONNX, luồng nền, pause/resume).
+2. Module Wake Word Engine (Vosk Offline tiếng Việt với từ khóa "Tèo", luồng nền, pause/resume).
 3. Luồng hoạt động tích hợp đa luồng (Signals, Worker, System Tray, Bíp).
 """
 
@@ -65,9 +65,9 @@ def test_ui_overlay():
     print(f"  [✓] Vị trí căn giữa màn hình: x={overlay.x()}, y={overlay.y()}, kích thước={overlay.width()}x{overlay.height()}")
 
     # 4. Kiểm tra show_overlay và hide_overlay
-    overlay.show_overlay("Echo đang lắng nghe...")
+    overlay.show_overlay("Tèo đang lắng nghe...")
     app.processEvents()
-    assert overlay.status_text == "Echo đang lắng nghe..."
+    assert overlay.status_text == "Tèo đang lắng nghe..."
     assert overlay._anim_timer.isActive(), "Timer animation phải đang chạy khi hiển thị"
     print("  [✓] Hàm show_overlay(): Đã hiển thị và kích hoạt animation timer")
 
@@ -88,7 +88,7 @@ def test_ui_overlay():
 
 def test_wake_word_engine():
     print("\n" + "=" * 65)
-    print("TEST 2: MODULE WAKE WORD ENGINE (OpenWakeWord ONNX)")
+    print("TEST 2: MODULE WAKE WORD ENGINE (Vosk Offline 'Hey Tèo' với Grammar)")
     print("=" * 65)
 
     triggered_data = []
@@ -97,23 +97,39 @@ def test_wake_word_engine():
         triggered_data.append((name, score))
 
     engine = WakeWordEngine(
-        models=["alexa", "hey_jarvis"],
+        wake_keyword="hey tèo",
         threshold=0.5,
         on_detected=on_wake,
     )
 
-    # 1. Kiểm tra mô hình nạp thành công qua ONNX
-    loaded_models = list(engine.oww_model.models.keys())
-    assert "alexa" in loaded_models, "Mô hình phải có 'alexa'"
-    assert "hey_jarvis" in loaded_models, "Mô hình phải có 'hey_jarvis'"
-    print(f"  [✓] Đã nạp thành công các mô hình ONNX: {loaded_models}")
+    # 1. Kiểm tra mô hình Vosk nạp thành công và Grammar được kích hoạt
+    assert engine.model is not None, "Mô hình Vosk phải được nạp thành công"
+    assert engine.recognizer is not None, "KaldiRecognizer phải được khởi tạo"
+    assert "hey tèo" in engine.grammar_words, "Grammar phải chứa 'hey tèo'"
+    assert "[unk]" in engine.grammar_words, "Grammar phải chứa '[unk]'"
+    print(f"  [✓] Đã nạp thành công mô hình Vosk từ: {engine.model_path}")
+    print(f"  [✓] Đã kích hoạt Vosk Grammar: {engine.grammar_words}")
 
-    # 2. Kiểm tra hàm predict với chunk âm thanh giả lập (1280 samples)
-    dummy_audio = np.zeros(1280, dtype=np.int16)
-    pred = engine.oww_model.predict(dummy_audio)
-    assert isinstance(pred, dict)
-    assert "alexa" in pred and "hey_jarvis" in pred
-    print(f"  [✓] Dự đoán với audio chunk 1280 samples (80ms): {pred}")
+    # 2. Kiểm tra Regex phát hiện từ khóa 'Hey Tèo' và các biến thể
+    test_cases = [
+        ("hey tèo", True),
+        ("hê tèo", True),
+        ("này tèo", True),
+        ("chào tèo", True),
+        ("tèo", True),
+        ("tèo ơi", True),
+        ("ê tèo", True),
+        ("teo", True),
+        ("hey tèo mở chrome", True),
+        ("bánh bèo", False),
+        ("ăn kẹo kéo", False),
+        ("theo như lời kể", False),
+        ("[unk]", False),
+    ]
+    for text, expected in test_cases:
+        res = engine._check_text_for_wake_word(text)
+        assert res == expected, f"Regex sai cho '{text}': kỳ vọng {expected}, thực tế {res}"
+    print("  [✓] Bộ lọc Regex Wake Word 'Hey Tèo': Nhận diện chính xác 100% các biến thể & chặn 'bánh bèo', 'theo'")
 
     # 3. Kiểm tra trạng thái start, pause, resume, stop
     engine.start()
@@ -206,13 +222,13 @@ def test_system_tray_icon():
     icon = create_tray_icon()
     print(f"  [Step 4.3] Kiểm tra QIcon isNull: {icon.isNull()}...", flush=True)
     assert not icon.isNull(), "Biểu tượng System Tray không được rỗng"
-    print("  [✓] Biểu tượng System Tray phong cách Echo Orb vector được tạo thành công", flush=True)
+    print("  [✓] Biểu tượng System Tray phong cách Tèo Orb vector được tạo thành công", flush=True)
     print("=> TEST 4 (System Tray Icon) PASSED 100%!", flush=True)
 
 
 if __name__ == "__main__":
     print("\n" + "#" * 68)
-    print("  BẮT ĐẦU CHẠY KIỂM THỬ PHASE 5.1: OVERLAY & WAKE WORD (ECHO ASSISTANT)")
+    print("  BẮT ĐẦU CHẠY KIỂM THỬ PHASE 5.1: OVERLAY & WAKE WORD (TÈO ASSISTANT)")
     print("#" * 68)
 
     test_ui_overlay()
