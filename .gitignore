@@ -1,0 +1,66 @@
+# ==========================================
+# Python Bytecode & Cache
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# ==========================================
+# PyInstaller Build & Distribution
+# ==========================================
+build/
+dist/
+*.spec
+
+# ==========================================
+# Environment Variables & Secrets
+# ==========================================
+.env
+.env.*
+!.env.example
+
+# ==========================================
+# Personal / Local Learning Data Files
+# ==========================================
+memory.json
+learned_phonetics.json
+offline_learning.json
+test_*.json
+*.jsonl
+
+# ==========================================
+# Heavy Offline Models (Downloaded locally)
+# ==========================================
+model/
+*.onnx
+*.tflite
+
+# ==========================================
+# Virtual Environments
+# ==========================================
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ==========================================
+# IDE & Editor Configurations
+# ==========================================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ==========================================
+# Operating System Files & Logs
+# ==========================================
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+*.log
