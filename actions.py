@@ -48,23 +48,31 @@ except ImportError:
     AudioUtilities = None
     IAudioEndpointVolume = None
 
-# Thư viện tự động tìm kiếm và mở ứng dụng đã cài đặt trên Windows (hỗ trợ cả app UWP Store)
-try:
-    # Nếu file Data/data.json bị lỗi định dạng trước đó, dọn dẹp để AppOpener không crash
-    data_json_path = os.path.join(os.getcwd(), "Data", "data.json")
-    if os.path.exists(data_json_path):
-        try:
-            with open(data_json_path, "r", encoding="utf-8") as _f:
-                json.load(_f)
-        except Exception:
-            try:
-                os.remove(data_json_path)
-            except Exception:
-                pass
+# Thư viện tự động tìm kiếm và mở ứng dụng đã cài đặt trên Windows (Lazy load khi cần)
+_AppOpener = None
+_AppOpener_loaded = False
 
-    import AppOpener
-except Exception:
-    AppOpener = None
+def get_app_opener():
+    global _AppOpener, _AppOpener_loaded
+    if not _AppOpener_loaded:
+        _AppOpener_loaded = True
+        try:
+            # Nếu file Data/data.json bị lỗi định dạng trước đó, dọn dẹp để AppOpener không crash
+            data_json_path = os.path.join(os.getcwd(), "Data", "data.json")
+            if os.path.exists(data_json_path):
+                try:
+                    with open(data_json_path, "r", encoding="utf-8") as _f:
+                        json.load(_f)
+                except Exception:
+                    try:
+                        os.remove(data_json_path)
+                    except Exception:
+                        pass
+            import AppOpener as ao
+            _AppOpener = ao
+        except Exception:
+            _AppOpener = None
+    return _AppOpener
 
 
 class ActionExecutor:
@@ -344,9 +352,10 @@ class ActionExecutor:
         # =========================================================================
         # BƯỚC 3: DỰ PHÒNG APPOPENER (cho app UWP / Store - match_closest=False)
         # =========================================================================
-        if AppOpener is not None:
+        ao = get_app_opener()
+        if ao is not None:
             try:
-                available_apps = AppOpener.give_appnames()
+                available_apps = ao.give_appnames()
                 exact_app_name = None
                 for app_key in available_apps:
                     if app_key.strip().lower() == name:
@@ -354,11 +363,11 @@ class ActionExecutor:
                         break
 
                 if exact_app_name:
-                    AppOpener.open(exact_app_name, match_closest=False, throw_error=True)
+                    ao.open(exact_app_name, match_closest=False, throw_error=True)
                     print(f"[Action] [✓] Đã mở thành công '{exact_app_name}' qua AppOpener.")
                     return
                 else:
-                    AppOpener.open(name, match_closest=False, throw_error=True)
+                    ao.open(name, match_closest=False, throw_error=True)
                     print(f"[Action] [✓] Đã mở thành công '{name}' qua AppOpener.")
                     return
             except Exception as exc:

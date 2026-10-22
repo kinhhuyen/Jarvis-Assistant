@@ -118,9 +118,33 @@ class SpeechToText:
         if not HAS_KEYBOARD:
             print("[STT Cảnh báo] Chưa cài đặt thư viện 'keyboard'! Cần pip install keyboard")
 
+        # Cấu hình thiết bị Microphone đầu vào
+        from utils import get_configured_microphone
+        input_device_param = kwargs.get("input_device", None)
+        if input_device_param is not None:
+            self.input_device = input_device_param
+            self.input_device_name = f"Device {input_device_param}"
+        else:
+            cfg_idx, cfg_name = get_configured_microphone()
+            self.input_device = cfg_idx
+            self.input_device_name = cfg_name
+        print(f"[STT] 🎙️ Thiết bị Micro khởi tạo: {self.input_device_name} (device={self.input_device})")
+
+    def set_input_device(self, device_index: Optional[int], device_name: str = "") -> None:
+        """Cập nhật thiết bị Microphone cho STT."""
+        self.input_device = device_index
+        self.input_device_name = device_name or (f"Device {device_index}" if device_index is not None else "Mặc định hệ thống")
+        print(f"[STT] 🎙️ Đã chuyển Microphone sang: {self.input_device_name} (device={self.input_device})")
+
     def check_microphone(self) -> dict:
         """Kiểm tra Microphone khả dụng trên Windows."""
         try:
+            if self.input_device is not None:
+                try:
+                    return sd.query_devices(self.input_device)
+                except Exception:
+                    print(f"[STT Cảnh báo] Micro index {self.input_device} không khả dụng, dùng mặc định...")
+                    self.input_device = None
             devices = sd.query_devices()
         except Exception as exc:
             raise RuntimeError(f"Không thể truy vấn thiết bị âm thanh: {exc}") from exc
@@ -272,6 +296,7 @@ class SpeechToText:
                 blocksize=self.samples_per_frame,
                 dtype="int16",
                 channels=self.CHANNELS,
+                device=self.input_device,
                 callback=audio_callback,
             )
             stream.start()
@@ -342,7 +367,7 @@ class SpeechToText:
         self.check_microphone()
         frames_to_read = int(self.SAMPLE_RATE * duration)
         print(f"[STT] Đang ghi âm {duration}s...")
-        data = sd.rec(frames_to_read, samplerate=self.SAMPLE_RATE, channels=self.CHANNELS, dtype="int16")
+        data = sd.rec(frames_to_read, samplerate=self.SAMPLE_RATE, channels=self.CHANNELS, dtype="int16", device=self.input_device)
         sd.wait()
         return data.tobytes()
 
@@ -363,7 +388,7 @@ class SpeechToText:
 
         print(f"[STT 🎙️] Đang lắng nghe câu lệnh (tối đa {max_duration}s)...")
         try:
-            with sd.InputStream(samplerate=self.SAMPLE_RATE, channels=self.CHANNELS, dtype="int16", blocksize=chunk_size) as stream:
+            with sd.InputStream(samplerate=self.SAMPLE_RATE, channels=self.CHANNELS, dtype="int16", blocksize=chunk_size, device=self.input_device) as stream:
                 while (time.time() - start_time) < max_duration:
                     data, _ = stream.read(chunk_size)
                     recorded_frames.append(data.tobytes())

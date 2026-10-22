@@ -5,6 +5,8 @@ Chức năng:
     - Sử dụng mô hình Vosk Offline tiếng Việt (chạy hoàn toàn cục bộ, miễn phí, không tốn GPU).
     - Cấu hình Vosk Grammar (giới hạn từ vựng) giúp loại bỏ tạp âm và nhận diện cực nhạy.
     - Lắng nghe liên tục từ microphone qua sounddevice.RawInputStream (16kHz, 16-bit PCM Mono).
+    - Hỗ trợ chọn Microphone cụ thể từ config.json hoặc thay đổi linh hoạt trong thời gian thực.
+    - Tự động fallback về Micro mặc định nếu thiết bị chỉ định bị ngắt kết nối.
     - Nhận diện từ khóa đánh thức: "Hey Tèo", "Tèo ơi", "Ê Tèo", "Hê Tèo", "Này Tèo", "Chào Tèo", "Tèo".
     - In log debug chi tiết trong thời gian thực: mọi câu nghe được và thông báo khi khớp từ khóa.
     - Cơ chế nhường Micro an toàn đa luồng:
@@ -25,7 +27,7 @@ from typing import Callable, List, Optional
 import sounddevice as sd
 import vosk
 
-from utils import resource_path
+from utils import get_configured_microphone, resource_path
 
 # Đảm bảo in tiếng Việt chuẩn trên Windows console
 if sys.platform.startswith("win"):
@@ -41,7 +43,7 @@ if sys.platform.startswith("win"):
 class WakeWordEngine:
     """
     Lớp lắng nghe và phát hiện Wake Word 'Hey Tèo' / 'Tèo' liên tục bằng mô hình Vosk tiếng Việt.
-    Tối ưu hóa độ nhạy và chống nhiễu bằng Vosk Grammar.
+    Tối ưu hóa độ nhạy và chống nhiễu bằng Vosk Grammar, hỗ trợ chọn thiết bị Microphone tùy chỉnh.
     """
 
     SAMPLE_RATE: int = 16000
@@ -75,6 +77,7 @@ class WakeWordEngine:
         on_detected: Optional[Callable[[str, float], None]] = None,
         cooldown_sec: float = 1.5,
         grammar_words: Optional[List[str]] = None,
+        input_device: Optional[int] = None,
         **kwargs,
     ) -> None:
         """
@@ -87,12 +90,22 @@ class WakeWordEngine:
             on_detected: Hàm callback gọi khi phát hiện Wake Word: callback(keyword, score).
             cooldown_sec: Thời gian chờ tối thiểu giữa 2 lần kích hoạt liên tiếp (giây).
             grammar_words: Danh sách từ vựng cho Vosk Grammar.
+            input_device: Chỉ số thiết bị Microphone (device index của sounddevice). None = mặc định.
         """
         self.wake_keyword = wake_keyword.lower()
         self.threshold = threshold
         self.on_detected = on_detected
         self.cooldown_sec = cooldown_sec
         self.grammar_words = grammar_words or self.DEFAULT_GRAMMAR_WORDS
+
+        # Cấu hình thiết bị Microphone đầu vào
+        if input_device is not None:
+            self.input_device = input_device
+            self.input_device_name = f"Device {input_device}"
+        else:
+            cfg_idx, cfg_name = get_configured_microphone()
+            self.input_device = cfg_idx
+            self.input_device_name = cfg_name
 
         vosk.SetLogLevel(-1)  # Tắt log Kaldi rườm rà
 
@@ -127,6 +140,7 @@ class WakeWordEngine:
                 self.recognizer = vosk.KaldiRecognizer(self.model, float(self.SAMPLE_RATE))
 
             print(f"[WakeWord] ✓ Sẵn sàng nhận diện từ khóa: '{self.wake_keyword}' ('Hey Tèo', 'Tèo ơi', 'Ê Tèo'...)")
+            print(f"[WakeWord] 🎙️ Thiết bị Micro khởi tạo: {self.input_device_name} (device={self.input_device})")
         except Exception as exc:
             print(f"[WakeWord Cảnh báo] Không thể khởi tạo Vosk Model: {exc}")
             self.model = None
@@ -137,6 +151,23 @@ class WakeWordEngine:
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         self._last_trigger_time = 0.0
+
+    def set_input_device(self, device_index: Optional[int], device_name: str = "") -> None:
+        """
+        Cập nhật thiết bị Microphone đầu vào và khởi động lại luồng lắng nghe an toàn.
+        """
+        with self._lock:
+            if self.input_device == device_index:
+                return
+            self.input_device = device_index
+            self.input_device_name = device_name or (f"Device {device_index}" if device_index is not None else "Mặc định hệ thống")
+            was_running = self._running and not self._paused
+
+        print(f"[WakeWord] 🎙️ Đã chuyển Microphone sang: {self.input_device_name} (device={self.input_device})")
+        if was_running:
+            self.pause()
+            time.sleep(0.15)
+            self.resume()
 
     def start(self) -> None:
         """Bắt đầu luồng lắng nghe Wake Word."""
@@ -211,6 +242,7 @@ class WakeWordEngine:
                     blocksize=self.BLOCK_SIZE,
                     dtype="int16",
                     channels=1,
+                    device=self.input_device,
                 )
                 stream.start()
 
@@ -276,6 +308,10 @@ class WakeWordEngine:
             except Exception as exc:
                 if self._running and not self._paused:
                     print(f"[WakeWord Lỗi Stream Audio]: {exc}")
+                    # Nếu lỗi xảy ra khi dùng input_device cụ thể, tự động fallback về mặc định
+                    if self.input_device is not None:
+                        print(f"[WakeWord] Tự động thử lại với Micro mặc định hệ thống (device=None)...")
+                        self.input_device = None
                     time.sleep(0.3)
             finally:
                 if stream is not None:
