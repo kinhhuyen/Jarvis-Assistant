@@ -1,6 +1,6 @@
 """
 Module: app_tray.py
-Mục đích: Chương trình điều phối chính của Trợ lý ảo Tèo Assistant (v1.2).
+Mục đích: Chương trình điều phối chính của Trợ lý ảo Tèo Assistant (v1.3).
 Chức năng:
     - Quản lý giao diện PyQt6 trên luồng chính (Main Thread):
         + Cửa sổ Glow Orb Overlay trong suốt, mờ ảo chính giữa màn hình.
@@ -262,7 +262,7 @@ class CommandProcessingWorker(QThread):
 
 class TeoAssistantApp:
     """
-    Lớp điều phối toàn diện ứng dụng Tèo Assistant (v1.2):
+    Lớp điều phối toàn diện ứng dụng Tèo Assistant (v1.3):
     - Quản lý ứng dụng Qt và System Tray.
     - Autostart Windows qua HKCU Run.
     - Cấu hình Microphone linh hoạt từ Tray.
@@ -278,7 +278,7 @@ class TeoAssistantApp:
         self.app.setQuitOnLastWindowClosed(False)  # Giữ app chạy nền khi đóng overlay
 
         print("\n" + "=" * 68)
-        print("     KHỞI ĐỘNG TÈO ASSISTANT v1.2 (VOSK WAKE WORD & TRAY OVERLAY)")
+        print("     KHỞI ĐỘNG TÈO ASSISTANT v1.3 (VOSK WAKE WORD & TRAY OVERLAY)")
         print("=" * 68)
 
         # 2. Khởi tạo Giao diện Overlay
@@ -318,12 +318,12 @@ class TeoAssistantApp:
     def _setup_system_tray(self) -> None:
         """Thiết lập biểu tượng và menu ngữ cảnh cho Khay hệ thống Windows."""
         self.tray_icon = QSystemTrayIcon(create_tray_icon(), self.app)
-        self.tray_icon.setToolTip("Tèo Assistant v1.2 - Sẵn sàng (Nói 'Hey Tèo' hoặc 'Tèo ơi')")
+        self.tray_icon.setToolTip("Tèo Assistant v1.3.1 - Sẵn sàng (Nói 'Hey Tèo')")
 
         self.tray_menu = QMenu()
 
         # 1. Tiêu đề thông tin
-        title_action = QAction("Tèo Assistant v1.2 (Đang hoạt động)", self.tray_menu)
+        title_action = QAction("Tèo Assistant v1.3.1 (Đang hoạt động)", self.tray_menu)
         title_action.setEnabled(False)
         self.tray_menu.addAction(title_action)
         self.tray_menu.addSeparator()
@@ -370,8 +370,8 @@ class TeoAssistantApp:
 
         # Thông báo chào mừng
         self.tray_icon.showMessage(
-            "Tèo Assistant v1.2",
-            "Đã khởi động ngầm trên khay hệ thống.\nHãy gọi 'Hey Tèo' hoặc 'Tèo ơi' để ra lệnh!",
+            "Tèo Assistant v1.3.1",
+            "Đã khởi động ngầm trên khay hệ thống.\nHãy gọi 'Hey Tèo' để ra lệnh!",
             QSystemTrayIcon.MessageIcon.Information,
             3500,
         )
@@ -487,8 +487,8 @@ class TeoAssistantApp:
         self.wake_engine.start()
 
         print("\n" + "=" * 68)
-        print("✓ TÈO ASSISTANT v1.2 ĐÃ HOẠT ĐỘNG HOÀN TOÀN TRÊN KHAY HỆ THỐNG!")
-        print("• Hãy nói vào micro: 'Hey Tèo', 'Tèo ơi', 'Ê Tèo' hoặc 'Chào Tèo'")
+        print("✓ TÈO ASSISTANT v1.3.1 ĐÃ HOẠT ĐỘNG HOÀN TOÀN TRÊN KHAY HỆ THỐNG!")
+        print("• Hãy nói vào micro: 'Hey Tèo'")
         print("• Nhấn chuột phải vào icon ở góc màn hình (System Tray) để cấu hình:")
         print("    + Bật/Tắt Khởi động cùng Windows")
         print("    + Chọn thiết bị Microphone đang dùng")

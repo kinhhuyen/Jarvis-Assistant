@@ -110,17 +110,24 @@ def test_wake_word_engine():
     print(f"  [✓] Đã nạp thành công mô hình Vosk từ: {engine.model_path}")
     print(f"  [✓] Đã kích hoạt Vosk Grammar: {engine.grammar_words}")
 
-    # 2. Kiểm tra Regex phát hiện từ khóa 'Hey Tèo' và các biến thể
+    # 2. Kiểm tra Regex CHỈ nhận diện duy nhất 'Hey Tèo' và loại bỏ toàn bộ biến thể khác (v1.3.1)
     test_cases = [
         ("hey tèo", True),
-        ("hê tèo", True),
-        ("này tèo", True),
-        ("chào tèo", True),
-        ("tèo", True),
-        ("tèo ơi", True),
-        ("ê tèo", True),
-        ("teo", True),
         ("hey tèo mở chrome", True),
+        ("hey tèo ơi", True),
+        # Loại bỏ các biến thể theo yêu cầu v1.3.1:
+        ("tèo ơi", False),
+        ("ê tèo", False),
+        ("này tèo", False),
+        ("chào tèo", False),
+        ("tèo ơi mở youtube", False),
+        ("hê tèo", False),
+        ("tèo", False),
+        ("teo", False),
+        ("a lô", False),
+        ("alo", False),
+        ("hê lô", False),
+        ("hello", False),
         ("bánh bèo", False),
         ("ăn kẹo kéo", False),
         ("theo như lời kể", False),
@@ -129,7 +136,7 @@ def test_wake_word_engine():
     for text, expected in test_cases:
         res = engine._check_text_for_wake_word(text)
         assert res == expected, f"Regex sai cho '{text}': kỳ vọng {expected}, thực tế {res}"
-    print("  [✓] Bộ lọc Regex Wake Word 'Hey Tèo': Nhận diện chính xác 100% các biến thể & chặn 'bánh bèo', 'theo'")
+    print("  [✓] Bộ lọc Regex Wake Word: CHỈ nhận diện duy nhất 'Hey Tèo' & chặn đứng toàn bộ biến thể khác!")
 
     # 3. Kiểm tra trạng thái start, pause, resume, stop
     engine.start()

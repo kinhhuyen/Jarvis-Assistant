@@ -48,6 +48,12 @@ except ImportError:
     AudioUtilities = None
     IAudioEndpointVolume = None
 
+# Thư viện quản lý tiến trình hệ thống
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 # Thư viện tự động tìm kiếm và mở ứng dụng đã cài đặt trên Windows (Lazy load khi cần)
 _AppOpener = None
 _AppOpener_loaded = False
@@ -117,6 +123,9 @@ class ActionExecutor:
         "cài đặt": "ms-settings:",
         "microsoft store": "ms-windows-store:",
         "store": "ms-windows-store:",
+        "tiktok": "tiktok.exe",
+        "powerpoint": "powerpnt.exe",
+        "capcut": "capcut.exe",
     }
 
     # Bảng đường dẫn tuyệt đối mặc định cho các app phổ biến khi không nằm trong PATH
@@ -316,6 +325,15 @@ class ActionExecutor:
             except Exception as exc:
                 print(f"[Action] [!] Lỗi khi mở GitHub: {exc}")
 
+        # Hỗ trợ mở YouTube
+        if name in ("youtube", "du túp", "du tu be"):
+            try:
+                webbrowser.open("https://www.youtube.com")
+                print(f"[Action] [✓] Đã mở YouTube trên trình duyệt.")
+                return
+            except Exception as exc:
+                print(f"[Action] [!] Lỗi khi mở YouTube: {exc}")
+
         # =========================================================================
         # BƯỚC 1: TRUY VẤN REGISTRY (App Paths)
         # =========================================================================
@@ -383,11 +401,61 @@ class ActionExecutor:
         except Exception:
             pass
 
-        # NẾU TẤT CẢ ĐỀU THẤT BẠI: In lỗi rõ ràng và raise FileNotFoundError
+        # =========================================================================
+        # BƯỚC 5: TẬN DỤNG LỆNH "START" CỦA WINDOWS (Start Menu, Store Apps, AppData)
+        # =========================================================================
+        print(f"[Action] Đang thử khởi chạy qua lệnh 'start' của Windows: '{name}'...")
+        start_candidates = [name]
+        if exe_name and exe_name != name:
+            start_candidates.append(exe_name)
+
+        for cand in start_candidates:
+            try:
+                subprocess.Popen(f'start "" "{cand}"', shell=True)
+            except Exception as e:
+                print(f"[Action Cảnh báo] Không thể chạy lệnh start cho '{cand}': {e}")
+
+        # Chờ 2 giây để kiểm tra xem tiến trình có thực sự chạy hay không (bằng psutil)
+        time.sleep(2.0)
+        if self._is_process_running(name, exe_name):
+            print(f"[Action] [✓] Đã mở thành công '{name}' qua lệnh 'start' của Windows.")
+            return
+
+        # NẾU SAU 2 GIÂY APP VẪN KHÔNG CHẠY: In cảnh báo rõ ràng ra log
         app_display = name.capitalize()
-        err_msg = f"Không tìm thấy ứng dụng '{app_display}' trên máy tính."
-        print(f"[Action] [✗ Lỗi] {err_msg}")
-        raise FileNotFoundError(err_msg)
+        err_msg = f"Ứng dụng '{app_display}' chưa được cài đặt trên máy tính hoặc không thể khởi chạy."
+        print(f"[Action Cảnh báo] [✗] {err_msg}")
+        raise FileNotFoundError(f"Không tìm thấy ứng dụng '{app_display}' trên máy tính (chưa được cài đặt).")
+
+    def _is_process_running(self, name: str, exe_name: str = "") -> bool:
+        """
+        Kiểm tra xem tiến trình của ứng dụng có đang chạy trên Windows hay không bằng psutil.
+        """
+        if psutil is None:
+            return False
+
+        targets = set()
+        if name:
+            targets.add(name.lower().strip())
+            targets.add(name.lower().replace(" ", ""))
+        if exe_name:
+            clean_exe = exe_name.lower().replace(".exe", "").strip()
+            targets.add(clean_exe)
+            targets.add(clean_exe.replace(" ", ""))
+
+        try:
+            for proc in psutil.process_iter(["name"]):
+                try:
+                    pname = (proc.info.get("name") or "").lower()
+                    pbase = pname.replace(".exe", "")
+                    for target in targets:
+                        if target == pbase or target in pname:
+                            return True
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+        except Exception as exc:
+            print(f"[Action Cảnh báo] Lỗi kiểm tra tiến trình psutil: {exc}")
+        return False
 
     def _handle_close_app(self, action: Dict[str, Any]) -> None:
         """

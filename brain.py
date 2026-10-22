@@ -717,20 +717,18 @@ Output: {"actions": [{"action": "screenshot"}, {"action": "shutdown"}]}
             # Bước 1: Đưa qua fuzzy_map (kết hợp cả từ tĩnh và từ tự học)
             mapped_app = self.fuzzy_map.get(raw_app, raw_app)
 
-            # Bước 2: Kiểm tra nếu khớp Whitelist -> Xử lý Fast Path ngay lập tức (<1ms)
+            # Bước 2: Xử lý các trường hợp đặc biệt (explorer, folder, tìm kiếm theo chủ đề)
             if mapped_app in ("explorer", "thư mục"):
                 return [{"action": "open_explorer"}]
             if mapped_app in self.FOLDER_TARGETS:
                 return [{"action": "open_folder", "folder": mapped_app}]
             if mapped_app in self.SEARCH_TOPICS:
                 return [{"action": "search_web", "query": mapped_app}]
-            if mapped_app in self.WHITELIST:
+
+            # FAST PATH: Trả về action open_app ngay lập tức mà không cần gọi LLM (tốc độ < 0.1s)
+            # Hỗ trợ mở mọi ứng dụng Windows (tiktok, word, excel, capcut, zalo, telegram...)
+            if mapped_app:
                 return [{"action": "open_app", "name": mapped_app}]
-            else:
-                # Nếu sau khi map vẫn không khớp Whitelist:
-                # Chuyển sang SLOW PATH (gọi LLM) để LLM thử đoán xem X là app gì
-                print(f"[Brain: FAST PATH] '{raw_app}' chưa khớp Whitelist -> Chuyển sang SLOW PATH (LLM) suy đoán...")
-                return None
 
         # 14. Lệnh đóng ứng dụng: "đóng [tên app]", "tắt [tên app]"
         match_close = re.match(

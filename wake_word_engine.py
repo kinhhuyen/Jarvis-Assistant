@@ -7,7 +7,7 @@ Chức năng:
     - Lắng nghe liên tục từ microphone qua sounddevice.RawInputStream (16kHz, 16-bit PCM Mono).
     - Hỗ trợ chọn Microphone cụ thể từ config.json hoặc thay đổi linh hoạt trong thời gian thực.
     - Tự động fallback về Micro mặc định nếu thiết bị chỉ định bị ngắt kết nối.
-    - Nhận diện từ khóa đánh thức: "Hey Tèo", "Tèo ơi", "Ê Tèo", "Hê Tèo", "Này Tèo", "Chào Tèo", "Tèo".
+    - Nhận diện từ khóa đánh thức duy nhất: "Hey Tèo".
     - In log debug chi tiết trong thời gian thực: mọi câu nghe được và thông báo khi khớp từ khóa.
     - Cơ chế nhường Micro an toàn đa luồng:
         + Hỗ trợ tạm dừng (pause): Đóng stream micro ngay lập tức để STT (Google STT / Vosk) thu âm lệnh.
@@ -49,23 +49,16 @@ class WakeWordEngine:
     SAMPLE_RATE: int = 16000
     BLOCK_SIZE: int = 4000  # 250ms mỗi block (nhanh, mượt, nhẹ CPU)
 
-    # 1. Regex nhận diện các biến thể của từ khóa "Hey Tèo"
-    # Phân biệt ranh giới từ để tránh khớp nhầm các từ có vần như 'bánh bèo' hay 'theo'
+    # 1. Regex nhận diện duy nhất từ khóa "Hey Tèo"
+    # Phân biệt ranh giới từ để tránh khớp nhầm các từ như 'a lô', 'hê lô', 'bánh bèo', 'theo'
     DEFAULT_WAKE_REGEX = re.compile(
-        r"\b(hey tèo|hê tèo|này tèo|chào tèo|ê tèo|tèo ơi|tèo|teo)\b",
+        r"\b(hey tèo)\b",
         re.IGNORECASE,
     )
 
     # 2. Vosk Grammar (Giới hạn từ vựng) - Ngăn Vosk bị loạn bởi tiếng ồn môi trường
     DEFAULT_GRAMMAR_WORDS: List[str] = [
-        "tèo",
-        "tèo ơi",
-        "ê tèo",
         "hey tèo",
-        "hê tèo",
-        "này tèo",
-        "chào tèo",
-        "teo",
         "[unk]",
     ]
 
@@ -139,7 +132,7 @@ class WakeWordEngine:
                 print(f"[WakeWord Cảnh báo] Không thể nạp Grammar ({g_err}), fallback về chế độ tiêu chuẩn...")
                 self.recognizer = vosk.KaldiRecognizer(self.model, float(self.SAMPLE_RATE))
 
-            print(f"[WakeWord] ✓ Sẵn sàng nhận diện từ khóa: '{self.wake_keyword}' ('Hey Tèo', 'Tèo ơi', 'Ê Tèo'...)")
+            print(f"[WakeWord] ✓ Sẵn sàng nhận diện duy nhất từ khóa: '{self.wake_keyword}'")
             print(f"[WakeWord] 🎙️ Thiết bị Micro khởi tạo: {self.input_device_name} (device={self.input_device})")
         except Exception as exc:
             print(f"[WakeWord Cảnh báo] Không thể khởi tạo Vosk Model: {exc}")
@@ -182,7 +175,7 @@ class WakeWordEngine:
                 daemon=True,
             )
             self._thread.start()
-            print(f"[WakeWord] 🎙️ Đã bắt đầu lắng nghe từ khóa '{self.wake_keyword}' (Ví dụ: 'Hey Tèo', 'Tèo ơi', 'Ê Tèo')...")
+            print(f"[WakeWord] 🎙️ Đã bắt đầu lắng nghe duy nhất từ khóa '{self.wake_keyword}'...")
 
     def stop(self) -> None:
         """Dừng hoàn toàn luồng lắng nghe Wake Word."""
@@ -340,14 +333,8 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("--- BẮT ĐẦU CHẠY THỬ NGHIỆM VOSK WAKE WORD 'HEY TÈO' ---")
     print("=" * 60)
-    print("Nói một trong các từ sau để kích hoạt:")
-    print("  • 'Hey Tèo' (Khuyên dùng)")
-    print("  • 'Tèo ơi'")
-    print("  • 'Ê Tèo'")
-    print("  • 'Hê Tèo'")
-    print("  • 'Này Tèo'")
-    print("  • 'Chào Tèo'")
-    print("  • 'Tèo'")
+    print("Nói từ khóa sau để kích hoạt:")
+    print("  • 'Hey Tèo'")
     print("\nNhấn Ctrl+C để dừng thử nghiệm.\n")
 
     engine.start()
