@@ -11,6 +11,7 @@ Chức năng:
     - Chạy bộ nhận diện Wake Word "Hey Tèo" (Vosk tiếng Việt) và pipeline xử lý lệnh trên các luồng phụ.
 """
 
+import concurrent.futures
 import ctypes
 import os
 import socket
@@ -19,6 +20,11 @@ import threading
 import time
 import winsound
 from typing import Optional
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 # Đảm bảo tiếng Việt hiển thị chính xác trên Windows Console
 if sys.platform.startswith("win"):
@@ -199,7 +205,7 @@ class CommandProcessingWorker(QThread):
         self.start()
 
     def run(self) -> None:
-        """Thực thi toàn bộ pipeline nhận diện và chạy hành động."""
+        """Thực thi toàn bộ pipeline nhận diện và chạy hành động với cơ chế Timeout 5s."""
         self._is_busy = True
         try:
             # 1. Mở Overlay và phát tiếng Bíp
@@ -211,39 +217,70 @@ class CommandProcessingWorker(QThread):
 
             # 2. Thu âm câu lệnh qua STT Engine
             print("\n[Tèo Assistant] 🎙️ Đang lắng nghe câu lệnh người dùng...")
-            audio_bytes = self.stt.record_wake_command(max_duration=4.5, silence_limit=0.85)
+            audio_bytes = self.stt.record_wake_command(max_duration=4.0, silence_limit=0.85)
 
             if not audio_bytes:
                 self.update_status_sig.emit("Không nghe thấy lệnh...")
                 time.sleep(0.8)
                 return
 
-            # 3. Nhận diện giọng nói
-            self.update_status_sig.emit("Đang nhận diện giọng nói...")
-            user_text = self.stt.process_audio(audio_bytes)
+            def _pipeline_task():
+                # 3. Nhận diện giọng nói
+                self.update_status_sig.emit("Đang nhận diện giọng nói...")
+                user_text = self.stt.process_audio(audio_bytes)
 
-            if not user_text or not user_text.strip():
-                self.update_status_sig.emit("Không nghe rõ câu lệnh...")
-                time.sleep(0.8)
-                return
+                if not user_text or not user_text.strip():
+                    self.update_status_sig.emit("Không nghe rõ câu lệnh...")
+                    time.sleep(0.8)
+                    return
 
-            print(f"[Tèo Assistant 👤] Lệnh nhận diện: \"{user_text}\"")
-            self.update_status_sig.emit(f'"{user_text}"')
-            time.sleep(0.3)
+                print(f"[Tèo Assistant 👤] Lệnh nhận diện: \"{user_text}\"")
+                self.update_status_sig.emit(f'"{user_text}"')
+                time.sleep(0.3)
 
-            # 4. Phân tích ý định qua Bộ não
-            self.update_status_sig.emit("Đang thực thi lệnh...")
-            t0 = time.time()
-            actions_list = self.brain.process(user_text)
-            elapsed = round(time.time() - t0, 3)
-            print(f"[Tèo Assistant 🧠] Ý định giải mã xong ({elapsed}s): {actions_list}")
+                # 4. Phân tích ý định qua Bộ não
+                self.update_status_sig.emit("Đang thực thi lệnh...")
+                t0 = time.time()
+                actions_list = self.brain.process(user_text)
+                elapsed = round(time.time() - t0, 3)
+                print(f"[Tèo Assistant 🧠] Ý định giải mã xong ({elapsed}s): {actions_list}")
 
-            # 5. Thực thi các hành động
-            if actions_list:
-                self.executor.execute(actions_list)
-                time.sleep(0.5)
+                # 5. Thực thi các hành động
+                if actions_list:
+                    self.executor.execute(actions_list)
+                    time.sleep(0.5)
 
-            print("[Tèo Assistant] ✓ Đã hoàn thành lệnh. Sẵn sàng lắng nghe từ khóa tiếp theo.")
+                print("[Tèo Assistant] ✓ Đã hoàn thành lệnh. Sẵn sàng lắng nghe từ khóa tiếp theo.")
+
+            # Cơ chế Timeout 5 giây chống treo App:
+            # Nếu xử lý quá 5 giây, kill tiến trình và reset lại Micro
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_pipeline_task)
+                try:
+                    future.result(timeout=5.0)
+                except concurrent.futures.TimeoutError:
+                    print("\n[Worker] ⚠️ Xử lý câu lệnh quá 5 giây (Timeout 5s)! Đang kill tiến trình và reset lại Micro...")
+                    self.update_status_sig.emit("Quá thời gian xử lý (Timeout 5s)...")
+
+                    # Kill các tiến trình con phát sinh
+                    if psutil:
+                        try:
+                            parent_proc = psutil.Process()
+                            for child in parent_proc.children(recursive=True):
+                                try:
+                                    child.kill()
+                                except Exception:
+                                    pass
+                        except Exception as k_err:
+                            print(f"[Worker Cảnh báo kill]: {k_err}")
+
+                    # Reset lại Microphone
+                    try:
+                        self.wake_engine.reset_microphone()
+                    except Exception as mic_err:
+                        print(f"[Worker Cảnh báo reset micro]: {mic_err}")
+
+                    time.sleep(0.8)
 
         except Exception as exc:
             print(f"[Tèo Assistant Lỗi Pipeline]: {exc}")
@@ -278,7 +315,7 @@ class TeoAssistantApp:
         self.app.setQuitOnLastWindowClosed(False)  # Giữ app chạy nền khi đóng overlay
 
         print("\n" + "=" * 68)
-        print("     KHỞI ĐỘNG TÈO ASSISTANT v1.3 (VOSK WAKE WORD & TRAY OVERLAY)")
+        print("     KHỞI ĐỘNG TÈO ASSISTANT v1.1.0 (VOSK WAKE WORD & TRAY OVERLAY)")
         print("=" * 68)
 
         # 2. Khởi tạo Giao diện Overlay
@@ -318,12 +355,12 @@ class TeoAssistantApp:
     def _setup_system_tray(self) -> None:
         """Thiết lập biểu tượng và menu ngữ cảnh cho Khay hệ thống Windows."""
         self.tray_icon = QSystemTrayIcon(create_tray_icon(), self.app)
-        self.tray_icon.setToolTip("Tèo Assistant v1.3.1 - Sẵn sàng (Nói 'Hey Tèo')")
+        self.tray_icon.setToolTip("Tèo Assistant v1.1.0 - Sẵn sàng (Nói 'Hey Tèo')")
 
         self.tray_menu = QMenu()
 
         # 1. Tiêu đề thông tin
-        title_action = QAction("Tèo Assistant v1.3.1 (Đang hoạt động)", self.tray_menu)
+        title_action = QAction("Tèo Assistant v1.1.0 (Đang hoạt động)", self.tray_menu)
         title_action.setEnabled(False)
         self.tray_menu.addAction(title_action)
         self.tray_menu.addSeparator()
@@ -487,7 +524,7 @@ class TeoAssistantApp:
         self.wake_engine.start()
 
         print("\n" + "=" * 68)
-        print("✓ TÈO ASSISTANT v1.3.1 ĐÃ HOẠT ĐỘNG HOÀN TOÀN TRÊN KHAY HỆ THỐNG!")
+        print("✓ TÈO ASSISTANT v1.1.0 ĐÃ HOẠT ĐỘNG HOÀN TOÀN TRÊN KHAY HỆ THỐNG!")
         print("• Hãy nói vào micro: 'Hey Tèo'")
         print("• Nhấn chuột phải vào icon ở góc màn hình (System Tray) để cấu hình:")
         print("    + Bật/Tắt Khởi động cùng Windows")

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
+from rapidfuzz import fuzz
 
 from memory_manager import MemoryManager
 
@@ -38,6 +39,17 @@ class Brain:
         - Fast Path (Regex): Ưu tiên tốc độ tối đa cho các lệnh đơn lẻ quen thuộc.
         - Slow Path (Ollama LLM): Xử lý ngôn ngữ tự nhiên sâu, sửa lỗi chính tả và tách lệnh ghép.
     """
+
+    # Dictionary map phiên âm Việt sang tên app chuẩn (so khớp RapidFuzz >80%)
+    PHONETIC_DICT: Dict[str, str] = {
+        "quật": "word",
+        "guốt": "word",
+        "an ti gra vơ ti": "antigravity",
+        "an ti": "antigravity",
+        "rề vô": "revo uninstaller",
+        "in sờ to lơ": "revo uninstaller",
+        "chôm": "chrome",
+    }
 
     # Từ điển FUZZY_MAP mở rộng: Map mạnh mẽ các biến thể nghe nhầm / phiên âm tiếng Việt thành app chuẩn
     FUZZY_MAP: Dict[str, str] = {
@@ -100,11 +112,25 @@ class Brain:
         "microsoft excel": "excel",
 
         # word
+        "quật": "word",
+        "guốt": "word",
         "quớt": "word",
         "guốc": "word",
         "uốt": "word",
         "word": "word",
         "microsoft word": "word",
+
+        # antigravity
+        "an ti gra vơ ti": "antigravity",
+        "an ti": "antigravity",
+        "an ti gra vi ti": "antigravity",
+        "antigravity": "antigravity",
+
+        # revo uninstaller
+        "rề vô": "revo uninstaller",
+        "in sờ to lơ": "revo uninstaller",
+        "revo": "revo uninstaller",
+        "revo uninstaller": "revo uninstaller",
 
         # cmd
         "xi em đê": "cmd",
@@ -284,7 +310,7 @@ class Brain:
         "chrome", "edge", "notepad", "calc", "máy tính", "word",
         "excel", "cmd", "explorer", "thư mục", "zalo", "coccoc",
         "paint", "spotify", "discord", "github", "microsoft store",
-        "telegram", "settings"
+        "telegram", "settings", "antigravity", "revo uninstaller"
     }
 
     # Danh sách app hợp lệ để kiểm tra và chống ảo giác LLM
@@ -307,22 +333,28 @@ QUY TẮC CỰC KỲ NGHIÊM NGẶT VỀ NHẬN DIỆN Ý ĐỊNH (CHỐNG ẢO 
 2. NẾU KHÔNG THỎA MÃN ĐIỀU KIỆN TRÊN: Nếu câu nói là chào hỏi, cảm thán, trò chuyện xã giao, hoặc câu vô nghĩa / không rõ nghĩa (ví dụ: "Hôm nay đợi đại tế", "Trời hôm nay đẹp quá", "Xin chào bạn", "Alo 123", "Tôi mệt quá"): BẮT BUỘC TRẢ VỀ DUY NHẤT: {"actions": [{"action": "unknown"}]}.
 3. TUYỆT ĐỐI KHÔNG TỰ BỊA RA HÀNH ĐỘNG khi câu nói không hề có động từ hành động rõ ràng.
 
+QUY TẮC PHÂN BIỆT ĐỘ SÁNG VÀ ÂM LƯỢNG (BẮT BUỘC TUÂN THỦ):
+- Nếu câu lệnh có từ "sáng", "độ sáng", "ánh sáng" -> BẮT BUỘC trả về action "brightness" (TUYỆT ĐỐI KHÔNG trả về volume).
+- Nếu câu lệnh có từ "âm lượng", "âm thanh", "tiếng" -> BẮT BUỘC trả về action "volume" (TUYỆT ĐỐI KHÔNG trả về brightness).
+
 QUY TẮC SUY ĐOÁN TÊN ỨNG DỤNG VÀ PHIÊN ÂM TIẾNG ANH (Chỉ áp dụng khi CÓ ĐỘNG TỪ MỞ/BẬT/CHẠY/TẮT/ĐÓNG/KHỞI ĐỘNG):
-- DANH SÁCH APP HỢP LỆ DUY NHẤT TRONG WHITELIST: chrome, edge, zalo, notepad, máy tính, calc, word, excel, cmd, coccoc, paint, spotify, discord, github, microsoft store, telegram, settings.
+- DANH SÁCH APP HỢP LỆ DUY NHẤT TRONG WHITELIST: chrome, edge, zalo, notepad, máy tính, calc, word, excel, cmd, coccoc, paint, spotify, discord, github, microsoft store, telegram, settings, antigravity, revo uninstaller.
 - QUY TẮC ĐẶC BIỆT VỀ PHIÊN ÂM ANH-VIỆT:
   Người dùng Việt Nam thường phát âm tên app tiếng Anh theo phiên âm tiếng Việt (Ví dụ: 'đít cọt' = discord, 'sờ pốt ti' = spotify). Nếu gặp từ lạ trong câu 'mở [X]', hãy suy luận xem đó là app tiếng Anh nào trong danh sách hỗ trợ.
   Các từ phiên âm này ĐƯỢC XEM LÀ TÊN PHẦN MỀM HỢP LỆ (KHÔNG PHẢI VÔ NGHĨA). Khi gặp 'mở [X]', 'bật [X]', 'chạy [X]' với [X] là từ lạ, BẮT BUỘC SUY LUẬN xem [X] tương ứng với app nào trong danh sách WHITELIST.
   + Ví dụ phiên âm:
+    * "quật", "guốt", "quớt", "guốc", "uốt" -> app: "word"
+    * "an ti gra vơ ti", "an ti", "an ti gra vi ti" -> app: "antigravity"
+    * "rề vô", "in sờ to lơ", "revo" -> app: "revo uninstaller"
+    * "chôm", "chờ rôm", "chờ rộng", "cờ rôm", "cờ rô", "gu gồ" -> app: "chrome"
     * "đít cọt", "đi xcọt", "đít cọc", "đít sờ cọt" -> app: "discord"
     * "git hắp", "gít húp" -> app: "github"
     * "sờ pốt ti phai", "sốp ti", "sờ pốt ti" -> app: "spotify"
     * "mai cờ rô sốp sờ to", "míc sô sốp", "chợ ứng dụng" -> app: "microsoft store"
     * "tê lê gram", "tê lê" -> app: "telegram"
     * "sét tình", "sết tinh", "cài đặt" -> app: "settings"
-    * "quớt", "guốc", "uốt" -> app: "word"
     * "mờ sờ ép", "ếch xen" -> app: "excel"
     * "xi em đê", "com măng" -> app: "cmd"
-    * "chờ rôm", "chờ rộng", "cờ rôm", "cờ rô", "chôm", "gu gồ" -> app: "chrome"
     * "ếp", "ép", "ếp cờ", "ết", "ếp cờ rô" -> app: "edge"
     * "vỡ giả lô", "giả lô", "da lô", "dà lô" -> app: "zalo"
     * "nốt bát", "nốc bát", "nốt pát" -> app: "notepad"
@@ -353,6 +385,10 @@ Danh sách Action hợp lệ:
 - open_drive: {"action": "open_drive", "drive": "C"} hoặc {"action": "open_drive", "drive": "D"}
 - open_folder: {"action": "open_folder", "folder": "pictures"} hoặc {"action": "open_folder", "folder": "downloads"} hoặc {"action": "open_folder", "folder": "documents"}
 - volume: {"action": "volume", "direction": "up hoặc down"} hoặc {"action": "volume", "percentage": 0 đến 100}
+- brightness: {"action": "brightness", "direction": "up hoặc down"} hoặc {"action": "brightness", "percentage": 0 đến 100}
+- wifi: {"action": "wifi", "state": "on hoặc off"}
+- bluetooth: {"action": "bluetooth", "state": "on hoặc off"}
+- unknown: {"action": "unknown"}
 - unknown: {"action": "unknown"}
 
 BẮT BUỘC:
@@ -441,7 +477,7 @@ Output: {"actions": [{"action": "screenshot"}, {"action": "shutdown"}]}
         self,
         ollama_url: str = "http://localhost:11434",
         model: str = "llama3.2",
-        timeout: float = 15.0,
+        timeout: float = 5.0,
         memory_file: Optional[str] = None,
         phonetics_file: Optional[str] = None,
     ) -> None:
@@ -688,24 +724,63 @@ Output: {"actions": [{"action": "screenshot"}, {"action": "shutdown"}]}
         if re.match(r"^(?:tắt|shutdown)\s+(?:máy|máy\s+tính|pc)$", cleaned):
             return [{"action": "shutdown"}]
 
-        # 10. Lệnh đặt/tăng/giảm âm lượng theo phần trăm (0 - 100%)
-        # Ví dụ: "giảm âm lượng xuống 50%", "tăng âm lượng lên 80%", "đặt âm lượng 50%"
-        match_vol_pct = re.match(
-            r"^(?:đặt|chỉnh|cài|bật|tăng|giảm|hạ)?\s*(?:âm\s*lượng|âm\s*thanh|tiếng)?\s*(?:về|lên|xuống|ở\s+mức|mức)?\s*(\d{1,3})\s*(?:%|phần\s*trăm)?$",
-            cleaned
-        )
-        if match_vol_pct:
-            pct_val = int(match_vol_pct.group(1))
-            if 0 <= pct_val <= 100:
-                return [{"action": "volume", "percentage": pct_val}]
+        # 10. Lệnh bật/tắt Wi-Fi
+        if re.search(r"\b(?:bật|mở|kết\s*nối)\s*(?:wifi|wi-fi|mạng\s*wifi|mạng\s*wi-fi)\b", cleaned):
+            return [{"action": "wifi", "state": "on"}]
+        if re.search(r"\b(?:tắt|đóng|ngắt)\s*(?:wifi|wi-fi|mạng\s*wifi|mạng\s*wi-fi)\b", cleaned):
+            return [{"action": "wifi", "state": "off"}]
 
-        # 11. Lệnh tăng âm lượng
-        if re.match(r"^(?:tăng|bật\s+to|cho\s+to|to)\s+(?:âm\s*lượng|âm\s*thanh|tiếng)?(?:\s+lên)?$", cleaned):
-            return [{"action": "volume", "direction": "up"}]
+        # 11. Lệnh bật/tắt Bluetooth
+        if re.search(r"\b(?:bật|mở|kết\s*nối)\s*(?:bluetooth|búp\s*tút|bờ\s*lu\s*tút)\b", cleaned):
+            return [{"action": "bluetooth", "state": "on"}]
+        if re.search(r"\b(?:tắt|đóng|ngắt)\s*(?:bluetooth|búp\s*tút|bờ\s*lu\s*tút)\b", cleaned):
+            return [{"action": "bluetooth", "state": "off"}]
 
-        # 12. Lệnh giảm âm lượng
-        if re.match(r"^(?:giảm|bật\s+nhỏ|cho\s+nhỏ|nhỏ)\s+(?:âm\s*lượng|âm\s*thanh|tiếng)?(?:\s+lại|\s+đi)?$", cleaned):
-            return [{"action": "volume", "direction": "down"}]
+        # 12. KIỂM TRA ĐỘ SÁNG MÀN HÌNH (BRIGHTNESS): Có chữ "sáng" -> brightness
+        has_brightness_keyword = bool(re.search(r"\b(?:độ\s*sáng|ánh\s*sáng|sáng|màn\s*hình\s*sáng)\b", cleaned))
+
+        if has_brightness_keyword:
+            # Tìm phần trăm nếu có (ví dụ: "tăng độ sáng 20%", "độ sáng 50%", "giảm độ sáng 10%")
+            match_bright_pct = re.search(r"(\d{1,3})\s*(?:%|phần\s*trăm)?", cleaned)
+            pct_val = int(match_bright_pct.group(1)) if match_bright_pct else None
+
+            is_up = bool(re.search(r"\b(?:tăng|cho\s+sáng|sáng\s+hơn|lên)\b", cleaned))
+            is_down = bool(re.search(r"\b(?:giảm|hạ|cho\s+tối|tối\s+hơn|bớt|xuống)\b", cleaned))
+
+            if pct_val is not None and 0 <= pct_val <= 100:
+                if is_up and not re.search(r"\b(?:lên\s+mức|ở\s+mức|đặt|chỉnh|cài)\b", cleaned):
+                    return [{"action": "brightness", "direction": "up", "step": pct_val}]
+                elif is_down and not re.search(r"\b(?:xuống\s+mức|ở\s+mức|đặt|chỉnh|cài)\b", cleaned):
+                    return [{"action": "brightness", "direction": "down", "step": pct_val}]
+                else:
+                    return [{"action": "brightness", "percentage": pct_val}]
+            else:
+                if is_down:
+                    return [{"action": "brightness", "direction": "down"}]
+                else:
+                    return [{"action": "brightness", "direction": "up"}]
+
+        # 13. KIỂM TRA ÂM LƯỢNG HỆ THỐNG (VOLUME): Có chữ "âm lượng", "âm thanh", "tiếng" -> volume
+        has_volume_keyword = bool(re.search(r"\b(?:âm\s*lượng|âm\s*thanh|tiếng|volume)\b", cleaned))
+        if has_volume_keyword or re.search(r"\b(?:bật\s+to|cho\s+to|bật\s+nhỏ|cho\s+nhỏ)\b", cleaned):
+            match_vol_pct = re.search(r"(\d{1,3})\s*(?:%|phần\s*trăm)?", cleaned)
+            pct_val = int(match_vol_pct.group(1)) if match_vol_pct else None
+
+            is_up = bool(re.search(r"\b(?:tăng|bật\s+to|cho\s+to|to\s+hơn|to|lên)\b", cleaned))
+            is_down = bool(re.search(r"\b(?:giảm|hạ|bật\s+nhỏ|cho\s+nhỏ|nhỏ\s+hơn|nhỏ|xuống)\b", cleaned))
+
+            if pct_val is not None and 0 <= pct_val <= 100:
+                if is_up and not re.search(r"\b(?:lên\s+mức|ở\s+mức|đặt|chỉnh|cài)\b", cleaned):
+                    return [{"action": "volume", "direction": "up", "step": pct_val / 100.0}]
+                elif is_down and not re.search(r"\b(?:xuống\s+mức|ở\s+mức|đặt|chỉnh|cài)\b", cleaned):
+                    return [{"action": "volume", "direction": "down", "step": pct_val / 100.0}]
+                else:
+                    return [{"action": "volume", "percentage": pct_val}]
+            else:
+                if is_down:
+                    return [{"action": "volume", "direction": "down"}]
+                elif is_up:
+                    return [{"action": "volume", "direction": "up"}]
 
         # 13. Lệnh mở ứng dụng đơn lẻ: "mở [tên app]", "mỡ [tên app]", "bật [tên app]", "vỡ [tên app]"
         match_open = re.match(
@@ -859,6 +934,23 @@ Output: {"actions": [{"action": "screenshot"}, {"action": "shutdown"}]}
                             item["percentage"] = max(0, min(100, round(pct_val)))
                         except Exception:
                             item.pop("percentage", None)
+                    valid_list.append(item)
+                elif act == "brightness":
+                    if "percentage" in item and item["percentage"] is not None:
+                        try:
+                            pct_val = float(str(item["percentage"]).replace("%", "").strip())
+                            item["percentage"] = max(0, min(100, round(pct_val)))
+                        except Exception:
+                            item.pop("percentage", None)
+                    if "step" in item and item["step"] is not None:
+                        try:
+                            item["step"] = int(str(item["step"]).replace("%", "").strip())
+                        except Exception:
+                            item["step"] = 10
+                    valid_list.append(item)
+                elif act in ("wifi", "bluetooth"):
+                    state = str(item.get("state", "on")).strip().lower()
+                    item["state"] = "on" if state in ("on", "enable", "enabled", "bật", "true", "1") else "off"
                     valid_list.append(item)
                 elif act == "open_drive":
                     raw_drive = str(item.get("drive", "")).strip().upper()
@@ -1114,6 +1206,52 @@ Output: {"actions": [{"action": "screenshot"}, {"action": "shutdown"}]}
             for act in actions
         )
 
+    def _match_phonetic_rapid(self, text: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        So khớp câu lệnh với từ điển phiên âm PHONETIC_DICT bằng RapidFuzz (>80%).
+        Được gọi trước khi gọi LLM (Slow Path) để nhận diện tức thì tên ứng dụng.
+        """
+        if not text:
+            return None
+
+        cleaned = text.strip().lower().rstrip(".!?;:")
+
+        # Kiểm tra xem có phải lệnh đóng/tắt không
+        is_close = False
+        candidate = cleaned
+
+        match_close = re.match(r"^(?:đóng|tắt|thoát|dừng)\s+(?:ứng\s+dụng|phần\s+mềm|app)?\s*(.+)$", cleaned)
+        match_open = re.match(r"^(?:mở|mỡ|vỡ|bật|khởi\s+động|chạy|vào)\s+(?:ứng\s+dụng|phần\s+mềm|app|trình\s+duyệt)?\s*(.+)$", cleaned)
+
+        if match_close:
+            is_close = True
+            candidate = match_close.group(1).strip()
+        elif match_open:
+            is_close = False
+            candidate = match_open.group(1).strip()
+
+        best_score = 0.0
+        best_target = None
+        best_key = None
+
+        for phonetic_key, target_app in self.PHONETIC_DICT.items():
+            # Tính độ tương đồng bằng rapidfuzz
+            score = float(fuzz.ratio(candidate, phonetic_key))
+            score_partial = float(fuzz.partial_ratio(candidate, phonetic_key))
+            effective_score = max(score, score_partial if len(candidate) > len(phonetic_key) else score)
+
+            if effective_score > best_score:
+                best_score = effective_score
+                best_target = target_app
+                best_key = phonetic_key
+
+        if best_score > 80.0 and best_target:
+            action_type = "close_app" if is_close else "open_app"
+            print(f"[Brain: RapidFuzz Phonetics] Khớp '{candidate}' với phiên âm '{best_key}' -> app: '{best_target}' (score: {best_score:.1f}% > 80%)")
+            return [{"action": action_type, "name": best_target}]
+
+        return None
+
     def process(self, text: str) -> List[Dict[str, Any]]:
         """
         Xử lý văn bản đầu vào và trả về danh sách các action cần thực thi.
@@ -1161,6 +1299,17 @@ Output: {"actions": [{"action": "screenshot"}, {"action": "shutdown"}]}
                 self.memory.set(input_text, fast_actions)
                 print(f"[Brain: MEMORY CACHE] Đã ghi nhớ câu lệnh: '{input_text}'")
             return fast_actions
+
+        # =====================================================================
+        # BƯỚC 1.5: RAPIDFUZZ SO KHỚP PHIÊN ÂM (>80%) TRƯỚC KHI GỌI LLM
+        # =====================================================================
+        phonetic_actions = self._match_phonetic_rapid(input_text)
+        if phonetic_actions is not None:
+            print(f"[Brain: RAPIDFUZZ (>80%)] Khớp phiên âm tiếng Anh -> {phonetic_actions}")
+            if self._is_valid_actions(phonetic_actions) and len(words) >= 2:
+                self.memory.set(input_text, phonetic_actions)
+                print(f"[Brain: MEMORY CACHE] Đã ghi nhớ câu lệnh: '{input_text}'")
+            return phonetic_actions
 
         # =====================================================================
         # BƯỚC 2: SLOW PATH (Ollama LLM)

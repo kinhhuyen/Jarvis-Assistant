@@ -1,20 +1,23 @@
-# 🎙️ Tèo Assistant (Trợ lý ảo AI Desktop) — v1.3.1
+# 🎙️ Tèo Assistant (Trợ lý ảo AI Desktop) — v1.1.0
 
 > **Trợ lý ảo AI tiếng Việt thế hệ mới trên Windows** — Hoạt động ngầm dưới khay hệ thống (System Tray), đánh thức tức thì bằng giọng nói qua từ khóa chuẩn duy nhất **"Hey Tèo"** (Vosk Offline Grammar), mở mọi ứng dụng siêu tốc (**Fast Path < 0.1s** & **Windows `start` Shell**), hỗ trợ **Tự khởi động cùng Windows**, **Chọn Microphone tùy biến**, **Ghi log xoay vòng `teo_debug.log` bắt bệnh từ xa**, bảo vệ độc quyền Micro (Single Instance Guard) và tự phục hồi dữ liệu thông minh (Auto-Recovery).
 
 ---
 
-## 🌟 Điểm mới trong phiên bản v1.3.1
+## 🌟 Điểm mới trong phiên bản v1.1.0 (Bản Đại Tu)
 
-1. **🎯 Tối ưu hóa Wake Word duy nhất ("Hey Tèo"):**
-   - Rút gọn toàn bộ danh sách đánh thức chỉ giữ lại duy nhất từ khóa: `"Hey Tèo"`.
-   - Vosk Grammar được cấu hình chuẩn: `["hey tèo", "[unk]"]` và Regex `\b(hey tèo)\b` giúp chống nhận diện nhầm tuyệt đối từ các câu nói thông thường hay tạp âm môi trường.
-2. **⚡ Mở ứng dụng siêu tốc (Fast Path < 0.1s):**
-   - Lệnh đơn giản dạng *"mở [tên app]"* hoặc *"bật [tên app]"* (ví dụ: *"mở tiktok"*, *"mở word"*, *"bật edge"*) được xử lý ngay qua Regex trong `brain.py` mà không cần gọi LLM, độ trễ phản hồi < 1ms (< 0.1s).
-3. **🚀 Khởi chạy ứng dụng toàn năng với Windows Shell `start`:**
-   - Trong `actions.py`, nếu ứng dụng không nằm trong Registry hay đường dẫn mặc định, hệ thống tự động kích hoạt `subprocess.Popen(f'start "" "{app_name}"', shell=True)`.
-   - Lệnh `start` có khả năng tự động tìm kiếm trên toàn bộ Windows Start Menu, Microsoft Store apps (TikTok, Spotify, Zalo, Telegram...) và AppData.
-   - Tích hợp kiểm tra tiến trình qua `psutil` sau 2 giây. Nếu app chưa được cài đặt, ghi cảnh báo rõ ràng ra file log để người dùng dễ dàng nắm bắt.
+1. **🌐 Lệnh hệ thống mở rộng & Phân biệt rõ Độ Sáng / Âm Lượng:**
+   - Hỗ trợ bật/tắt Wi-Fi (`netsh interface set interface "Wi-Fi"`), bật/tắt Bluetooth (`Start-Service / Stop-Service bthserv`).
+   - Điều khiển tăng/giảm/đặt độ sáng màn hình (`screen-brightness-control`).
+   - Phân biệt tuyệt đối: có chữ "sáng" -> `brightness`, có chữ "âm lượng" -> `volume`.
+2. **🪟 Ẩn hoàn toàn cửa sổ CMD & Chặn Popup lỗi:**
+   - Mọi tiến trình `subprocess` được gắn cờ `CREATE_NO_WINDOW`, `stdout=DEVNULL, stderr=DEVNULL`. Lỗi chỉ ghi vào log, không gây popup gián đoạn.
+3. **⏱️ Cơ chế Timeout 5s chống treo App:**
+   - Luồng Worker được trang bị Timeout 5 giây. Nếu xử lý tác vụ quá thời gian, tự động hủy tác vụ treo và reset luồng Microphone.
+4. **🛡️ Bộ lọc âm lượng RMS > 300 & Cooldown 2s chống kích hoạt nhầm:**
+   - Bộ lọc năng lượng âm thanh RMS chỉ đưa vào Vosk khi âm lượng đủ lớn (> 300), kết hợp Cooldown 2 giây sau mỗi lần kích hoạt để triệt tiêu kích hoạt nhầm bởi tiếng ồn môi trường hay tiếng hát.
+5. **🔤 Từ điển phiên âm tiếng Anh nâng cao (RapidFuzz >80%):**
+   - Bổ sung `PHONETIC_DICT` và so khớp mờ siêu tốc (>80%) trước khi gọi LLM cho các phần mềm như Word ("quật", "guốt"), Antigravity ("an ti gra vơ ti", "an ti"), Revo Uninstaller ("rề vô", "in sờ to lơ"), Chrome ("chôm").
 
 ---
 

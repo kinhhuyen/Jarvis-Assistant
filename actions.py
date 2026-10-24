@@ -40,6 +40,12 @@ try:
 except ImportError:
     ImageGrab = None
 
+# Thư viện điều khiển độ sáng màn hình
+try:
+    import screen_brightness_control as sbc
+except ImportError:
+    sbc = None
+
 # Thư viện điều khiển âm lượng hệ thống Windows
 try:
     from comtypes import CLSCTX_ALL
@@ -126,6 +132,9 @@ class ActionExecutor:
         "tiktok": "tiktok.exe",
         "powerpoint": "powerpnt.exe",
         "capcut": "capcut.exe",
+        "antigravity": "Antigravity IDE.exe",
+        "revo uninstaller": "RevoUninPro.exe",
+        "revo": "RevoUninPro.exe",
     }
 
     # Bảng đường dẫn tuyệt đối mặc định cho các app phổ biến khi không nằm trong PATH
@@ -133,6 +142,9 @@ class ActionExecutor:
         "zalo": os.path.expandvars(r"%LOCALAPPDATA%\Programs\Zalo\Zalo.exe"),
         "telegram": os.path.expandvars(r"%APPDATA%\Telegram Desktop\Telegram.exe"),
         "discord": os.path.expandvars(r"%LOCALAPPDATA%\Discord\Update.exe --processStart Discord.exe"),
+        "antigravity": r"D:\file\Antigravity IDE\Antigravity IDE.exe",
+        "revo uninstaller": os.path.expandvars(r"%PROGRAMFILES%\VS Revo Group\Revo Uninstaller Pro\RevoUninPro.exe"),
+        "revo": os.path.expandvars(r"%PROGRAMFILES%\VS Revo Group\Revo Uninstaller Pro\RevoUninPro.exe"),
     }
 
     def __init__(self, pictures_dir: Optional[Path] = None) -> None:
@@ -239,6 +251,17 @@ class ActionExecutor:
             ],
             "spotify": [
                 r"Spotify\Spotify.exe",
+            ],
+            "antigravity": [
+                r"Antigravity IDE\Antigravity IDE.exe",
+            ],
+            "revo uninstaller": [
+                r"VS Revo Group\Revo Uninstaller Pro\RevoUninPro.exe",
+                r"VS Revo Group\Revo Uninstaller\RevoUnin.exe",
+            ],
+            "revo": [
+                r"VS Revo Group\Revo Uninstaller Pro\RevoUninPro.exe",
+                r"VS Revo Group\Revo Uninstaller\RevoUnin.exe",
             ],
         }
 
@@ -411,7 +434,13 @@ class ActionExecutor:
 
         for cand in start_candidates:
             try:
-                subprocess.Popen(f'start "" "{cand}"', shell=True)
+                subprocess.Popen(
+                    f'start "" "{cand}"',
+                    shell=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
             except Exception as e:
                 print(f"[Action Cảnh báo] Không thể chạy lệnh start cho '{cand}': {e}")
 
@@ -421,11 +450,11 @@ class ActionExecutor:
             print(f"[Action] [✓] Đã mở thành công '{name}' qua lệnh 'start' của Windows.")
             return
 
-        # NẾU SAU 2 GIÂY APP VẪN KHÔNG CHẠY: In cảnh báo rõ ràng ra log
+        # NẾU SAU 2 GIÂY APP VẪN KHÔNG CHẠY: In cảnh báo ra log, không hiện popup
         app_display = name.capitalize()
         err_msg = f"Ứng dụng '{app_display}' chưa được cài đặt trên máy tính hoặc không thể khởi chạy."
         print(f"[Action Cảnh báo] [✗] {err_msg}")
-        raise FileNotFoundError(f"Không tìm thấy ứng dụng '{app_display}' trên máy tính (chưa được cài đặt).")
+        return
 
     def _is_process_running(self, name: str, exe_name: str = "") -> bool:
         """
@@ -470,12 +499,16 @@ class ActionExecutor:
             exe_name = f"{exe_name}.exe"
 
         print(f"[Action] Đang đóng ứng dụng: '{name}' ({exe_name})...")
-        cmd = f"taskkill /IM {exe_name} /F >nul 2>&1"
-        ret = os.system(cmd)
-        if ret == 0:
+        try:
+            subprocess.run(
+                ["taskkill", "/IM", exe_name, "/F"],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             print(f"[Action] [✓] Đã đóng ứng dụng: {name}")
-        else:
-            print(f"[Action] [!] Ứng dụng {name} có thể chưa được bật hoặc không thể đóng.")
+        except Exception as exc:
+            print(f"[Action] [!] Lỗi khi đóng ứng dụng {name}: {exc}")
 
     def _handle_search_web(self, action: Dict[str, Any]) -> None:
         """
@@ -517,7 +550,15 @@ class ActionExecutor:
         """
         print("[Action] [!] CẢNH BÁO: Lệnh tắt máy đã được kích hoạt!")
         print("[Action] [!] Máy tính sẽ tắt sau 10 giây. Để hủy lệnh, mở CMD gõ: shutdown /a")
-        os.system("shutdown /s /t 10")
+        try:
+            subprocess.Popen(
+                ["shutdown", "/s", "/t", "10"],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as exc:
+            print(f"[Action] [✗ Lỗi lệnh shutdown]: {exc}")
 
     def _handle_lock_screen(self, action: Dict[str, Any]) -> None:
         """
@@ -535,11 +576,15 @@ class ActionExecutor:
 
         # Fallback qua rundll32
         try:
-            os.system("rundll32.exe user32.dll,LockWorkStation")
+            subprocess.Popen(
+                ["rundll32.exe", "user32.dll,LockWorkStation"],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             print("[Action] [✓] Đã gửi lệnh khóa màn hình qua rundll32.")
         except Exception as exc:
             print(f"[Action] [✗ Lỗi khóa màn hình]: {exc}")
-            raise
 
     def _handle_restart(self, action: Dict[str, Any]) -> None:
         """
@@ -548,11 +593,16 @@ class ActionExecutor:
         timeout = int(action.get("timeout", 10))
         print(f"[Action] [!] CẢNH BÁO: Lệnh khởi động lại máy tính đã được kích hoạt!")
         print(f"[Action] [!] Máy tính sẽ restart sau {timeout} giây. Để hủy lệnh, mở CMD gõ: shutdown /a")
-        ret = os.system(f"shutdown /r /t {timeout}")
-        if ret == 0:
+        try:
+            subprocess.Popen(
+                ["shutdown", "/r", "/t", str(timeout)],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             print(f"[Action] [✓] Đã lên lịch khởi động lại máy sau {timeout} giây.")
-        else:
-            print(f"[Action] [✗ Lỗi] Lệnh restart trả về mã: {ret}")
+        except Exception as exc:
+            print(f"[Action] [✗ Lỗi lệnh restart]: {exc}")
 
     def _handle_open_explorer(self, action: Dict[str, Any]) -> None:
         """
@@ -562,17 +612,22 @@ class ActionExecutor:
         print("[Action] Đang mở File Explorer...")
         try:
             if path and os.path.exists(path):
-                subprocess.Popen(f'explorer.exe "{path}"')
+                subprocess.Popen(
+                    f'explorer.exe "{path}"',
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
             else:
-                subprocess.Popen("explorer.exe")
+                subprocess.Popen(
+                    "explorer.exe",
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
             print("[Action] [✓] Đã mở File Explorer thành công.")
-        except Exception:
-            try:
-                os.system("start explorer.exe")
-                print("[Action] [✓] Đã mở File Explorer qua lệnh start.")
-            except Exception as exc:
-                print(f"[Action] [✗ Lỗi mở File Explorer]: {exc}")
-                raise
+        except Exception as exc:
+            print(f"[Action] [✗ Lỗi mở File Explorer]: {exc}")
 
     def _handle_open_drive(self, action: Dict[str, Any]) -> None:
         """
@@ -706,6 +761,96 @@ class ActionExecutor:
         new_pct = round(new_scalar * 100)
         print(f"[Action] [✓] Đã {direction_vn} âm lượng: {old_pct}% -> {new_pct}%")
 
+    def _handle_wifi(self, action: Dict[str, Any]) -> None:
+        """
+        Xử lý bật/tắt Wi-Fi bằng lệnh netsh interface set interface "Wi-Fi".
+        """
+        state = str(action.get("state", "on")).strip().lower()
+        enable = state in ("on", "enable", "enabled", "bật", "true", "1")
+        admin_arg = "admin=ENABLED" if enable else "admin=DISABLED"
+        action_name = "bật" if enable else "tắt"
+
+        print(f"[Action] Đang thực hiện {action_name} Wi-Fi...")
+        try:
+            cmd = f'netsh interface set interface "Wi-Fi" {admin_arg}'
+            subprocess.run(
+                cmd,
+                shell=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            print(f"[Action] [✓] Đã gửi lệnh {action_name} Wi-Fi thành công.")
+        except Exception as exc:
+            print(f"[Action] [✗ Lỗi điều khiển Wi-Fi]: {exc}")
+
+    def _handle_bluetooth(self, action: Dict[str, Any]) -> None:
+        """
+        Xử lý bật/tắt Bluetooth bằng PowerShell Start-Service / Stop-Service bthserv.
+        """
+        state = str(action.get("state", "on")).strip().lower()
+        enable = state in ("on", "enable", "enabled", "bật", "true", "1")
+        action_name = "bật" if enable else "tắt"
+
+        ps_cmd = "Start-Service bthserv" if enable else "Stop-Service bthserv -Force"
+        print(f"[Action] Đang thực hiện {action_name} Bluetooth...")
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            print(f"[Action] [✓] Đã gửi lệnh {action_name} Bluetooth thành công.")
+        except Exception as exc:
+            print(f"[Action] [✗ Lỗi điều khiển Bluetooth]: {exc}")
+
+    def _handle_brightness(self, action: Dict[str, Any]) -> None:
+        """
+        Xử lý tăng/giảm/đặt độ sáng màn hình bằng screen-brightness-control:
+        - percentage: Đặt độ sáng tuyệt đối (0 - 100%).
+        - direction: Tăng ("up") hoặc Giảm ("down") theo step (mặc định 10%).
+        """
+        if sbc is None:
+            print("[Action Cảnh báo] Thư viện screen-brightness-control chưa được cài đặt!")
+            return
+
+        try:
+            current_brightness_list = sbc.get_brightness()
+            current_val = current_brightness_list[0] if current_brightness_list else 50
+        except Exception:
+            current_val = 50
+
+        try:
+            if "percentage" in action and action["percentage"] is not None:
+                raw_pct = action["percentage"]
+                if isinstance(raw_pct, str):
+                    raw_pct = raw_pct.replace("%", "").strip()
+                target_pct = max(0, min(100, round(float(raw_pct))))
+                sbc.set_brightness(target_pct)
+                print(f"[Action] [✓] Đã đặt độ sáng màn hình về: {target_pct}% (trước đó: {current_val}%)")
+                return
+
+            direction = str(action.get("direction", "up")).strip().lower()
+            step = action.get("step", 10)
+            try:
+                step_val = int(step)
+            except Exception:
+                step_val = 10
+
+            if direction == "up":
+                target_pct = min(100, current_val + step_val)
+                sbc.set_brightness(target_pct)
+                print(f"[Action] [✓] Đã TĂNG độ sáng màn hình: {current_val}% -> {target_pct}%")
+            elif direction == "down":
+                target_pct = max(0, current_val - step_val)
+                sbc.set_brightness(target_pct)
+                print(f"[Action] [✓] Đã GIẢM độ sáng màn hình: {current_val}% -> {target_pct}%")
+            else:
+                print(f"[Action Cảnh báo] Hướng điều chỉnh độ sáng không hợp lệ: {direction}")
+        except Exception as exc:
+            print(f"[Action] [✗ Lỗi điều khiển độ sáng màn hình]: {exc}")
+
     def _handle_unknown(self, action: Dict[str, Any]) -> None:
         """
         Xử lý khi câu lệnh không xác định hoặc không hiểu.
@@ -759,6 +904,12 @@ class ActionExecutor:
                     self._handle_open_folder(item)
                 elif action_type == "volume":
                     self._handle_volume(item)
+                elif action_type == "wifi":
+                    self._handle_wifi(item)
+                elif action_type == "bluetooth":
+                    self._handle_bluetooth(item)
+                elif action_type == "brightness":
+                    self._handle_brightness(item)
                 elif action_type == "unknown":
                     self._handle_unknown(item)
                 else:

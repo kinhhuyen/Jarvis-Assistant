@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 import sounddevice as sd
+import numpy as np
 import vosk
 
 from utils import get_configured_microphone, resource_path
@@ -68,9 +69,10 @@ class WakeWordEngine:
         wake_keyword: str = "hey tèo",
         threshold: float = 0.5,
         on_detected: Optional[Callable[[str, float], None]] = None,
-        cooldown_sec: float = 1.5,
+        cooldown_sec: float = 2.0,
         grammar_words: Optional[List[str]] = None,
         input_device: Optional[int] = None,
+        min_rms: float = 300.0,
         **kwargs,
     ) -> None:
         """
@@ -81,14 +83,16 @@ class WakeWordEngine:
             wake_keyword: Tên từ khóa đánh thức hiển thị (mặc định: 'hey tèo').
             threshold: Tham số tương thích ngược.
             on_detected: Hàm callback gọi khi phát hiện Wake Word: callback(keyword, score).
-            cooldown_sec: Thời gian chờ tối thiểu giữa 2 lần kích hoạt liên tiếp (giây).
+            cooldown_sec: Thời gian chờ tối thiểu giữa 2 lần kích hoạt liên tiếp (mặc định 2.0s chống kích hoạt nhầm).
             grammar_words: Danh sách từ vựng cho Vosk Grammar.
             input_device: Chỉ số thiết bị Microphone (device index của sounddevice). None = mặc định.
+            min_rms: Ngưỡng âm lượng tối thiểu (RMS > 300) để đưa vào Vosk.
         """
         self.wake_keyword = wake_keyword.lower()
         self.threshold = threshold
         self.on_detected = on_detected
         self.cooldown_sec = cooldown_sec
+        self.min_rms = min_rms
         self.grammar_words = grammar_words or self.DEFAULT_GRAMMAR_WORDS
 
         # Cấu hình thiết bị Microphone đầu vào
@@ -203,9 +207,24 @@ class WakeWordEngine:
             except Exception:
                 pass
         with self._lock:
-            self._last_trigger_time = time.time()  # Tránh trigger nhầm ngay lập tức
+            self._last_trigger_time = time.time()  # Tránh trigger nhầm ngay lập tức (Cooldown 2s)
             self._paused = False
         print(f"[WakeWord] ▶️ Tiếp tục lắng nghe từ khóa '{self.wake_keyword}'...")
+
+    def reset_microphone(self) -> None:
+        """
+        Reset lại toàn bộ luồng Micro: tạm dừng stream, reset Kaldi recognizer
+        và khởi tạo lại trạng thái lắng nghe tươi mới.
+        """
+        print("[WakeWord] 🔄 Đang reset lại luồng Microphone...")
+        self.pause()
+        time.sleep(0.15)
+        if self.recognizer:
+            try:
+                self.recognizer.Reset()
+            except Exception:
+                pass
+        self.resume()
 
     def is_listening(self) -> bool:
         """Kiểm tra xem engine có đang trong trạng thái lắng nghe tích cực không."""
@@ -244,6 +263,19 @@ class WakeWordEngine:
                 while self._running and not self._paused:
                     data, overflowed = stream.read(self.BLOCK_SIZE)
                     if not data:
+                        continue
+
+                    # BỘ LỌC ÂM LƯỢNG (RMS > 300):
+                    # Chỉ khi âm thanh đủ lớn mới đưa vào Vosk để nhận diện,
+                    # loại bỏ tiếng ồn nền, tiếng thở nhẹ hoặc tiếng hát xa
+                    samples = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+                    rms = float(np.sqrt(np.mean(samples ** 2))) if len(samples) > 0 else 0.0
+                    if rms <= self.min_rms:
+                        continue
+
+                    # BỘ ĐỆM COOLDOWN 2 GIÂY: Bỏ qua nếu vẫn trong thời gian cooldown sau lần kích hoạt trước
+                    now = time.time()
+                    if (now - self._last_trigger_time) < self.cooldown_sec:
                         continue
 
                     matched = False
